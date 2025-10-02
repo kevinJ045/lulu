@@ -1,4 +1,4 @@
 
 utils = require('utils')
 
-print(args)
+print(mod.conf.manifest.name, "sjhssh")
