@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Lulu Debug",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/lulu",
+      "args": ["build", "./example/proj"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "MY_CUSTOM_ENV": "hello"
+      },
+      "stopOnEntry": false
+    }
+  ]
+}

@@ -14,12 +14,6 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      shaTable = {
-        x86_64-linux = "sha256-9M67FZ4TzjoiGL73B8Jtwn38lW521yCLIqyvGzYCc50=";
-        aarch64-linux = "sha256-J4E32qZNyqmJyFKBuU+6doRYL3ZSaEMSBlML+hSkj+o=";
-        x86_64-darwin = "sha256-UnulsDS1LlrVR2+cz+4zgWxKqbkB5ch3T9UofGCZduQ=";
-        aarch64-darwin = "sha256-mU7N/1vXzCP+mwjzLTsDkT+8YOJifwNju3Rv9Cq5Loo=";
-      };
 
       forEachSystem =
         f:
@@ -51,7 +45,7 @@
         }:
         {
           default = rustPlatform.buildRustPackage {
-            pname = "rew_runtime";
+            pname = "lulu";
             version = "0.1.0";
             src = ./.;
             cargoLock = {
@@ -79,6 +73,7 @@
               rust-analyzer
               rustc
               rustfmt
+              luajit
             ];
           };
         }

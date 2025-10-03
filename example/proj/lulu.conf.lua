@@ -20,6 +20,10 @@ dependencies = {
 }
 
 build = function()
-  resolve_dependencies()
+  if not exists(".lib/lulib/lib.lulib") then
+    resolve_dependencies()
+  end
   
+  bundle_main_exec("main.lua")
 end
+
