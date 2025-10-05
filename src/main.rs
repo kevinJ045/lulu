@@ -1,7 +1,8 @@
 use crate::bundle::{load_lulib, make_bin, run_bundle, write_bundle};
-use crate::cli::{Cli, Commands};
+use crate::cli::{Cli, Commands, CacheCommand};
 use crate::conf::conf_to_string;
 use crate::lulu::{LuLib, Lulu, LuluModSource};
+use crate::package_manager::PackageManager;
 use crate::util::lua_to_bytecode;
 use clap::Parser;
 use mlua::Result;
@@ -15,6 +16,7 @@ pub mod compiler;
 pub mod conf;
 pub mod lulu;
 mod ops;
+mod package_manager;
 mod resolver;
 mod util;
 
@@ -48,8 +50,7 @@ macro_rules! into_exec_command {
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<()> {
   if let Some(mods) = bundle::load_embedded_scripts() {
-    println!("running");
-    do_error!(run_bundle(mods, std::env::args().collect()));
+    do_error!(run_bundle(mods, std::env::args().collect(), Some(std::env::current_exe()?.parent().unwrap().to_path_buf())));
     Ok(())
   } else {
     let cli = Cli::parse();
@@ -59,16 +60,16 @@ async fn main() -> Result<()> {
         do_error!(
           if file.extension().and_then(|s| s.to_str()) == Some("lulib") {
             let mods = load_lulib(file)?;
-            run_bundle(mods, args.clone())
+            run_bundle(mods, args.clone(), Some(file.parent().unwrap().to_path_buf()))
           } else {
-            let mut lulu = Lulu::new(Some(args.clone()));
+            let mut lulu = Lulu::new(Some(args.clone()), Some(file.parent().unwrap().to_path_buf()));
             lulu.exec_entry_mod_path(file.clone())
           }
         );
         Ok(())
       }
       Commands::Bundle { file, output } => {
-        let mut lulu = Lulu::new(None);
+        let mut lulu = Lulu::new(None, None);
 
         lulu.entry_mod_path(file.clone())?;
 
@@ -112,29 +113,41 @@ async fn main() -> Result<()> {
         Ok(())
       }
       Commands::Resolve { item } => {
-        if item.starts_with("http") || item.starts_with("github:") {
-          let path = std::path::PathBuf::from(".");
-
-          match resolver::fetch_dependency(item.as_str(), &path).await {
-            Err(e) => eprintln!("Failed to resolve dependency \"{}\":\n{}", item, e),
-            _ => {}
-          };
-        } else {
-          let path = std::path::PathBuf::from(item);
-          let conf_path = path.join("lulu.conf.lua");
-          let conf_string = std::fs::read_to_string(conf_path.clone())?;
-          let lua = mlua::Lua::new();
-          let parent_path = path.clone();
-          let dependencies = conf::load_lulu_conf_dependiencies(&lua, conf_string.clone())?;
-          if let Some(dependencies) = dependencies {
-            for dependency in dependencies {
-              match resolver::fetch_dependency(dependency.as_str(), &parent_path.clone()).await {
-                Err(e) => eprintln!("Failed to resolve dependency \"{}\":\n{}", dependency, e),
-                _ => {}
-              };
+        let pkg_manager = PackageManager::new().map_err(|e| {
+          mlua::Error::external(e)
+        })?;
+        
+        async {
+          if item.starts_with("http") || item.starts_with("github:") {
+            let path = std::path::PathBuf::from(".");
+            
+            match pkg_manager.install_package(item.as_str(), &path).await {
+              Ok(_) => {},
+              Err(e) => eprintln!("Failed to resolve dependency \"{}\": {}", item, e),
+            };
+          } else {
+            let path = std::path::PathBuf::from(item);
+            let conf_path = path.join("lulu.conf.lua");
+            
+            if let Ok(conf_string) = std::fs::read_to_string(conf_path.clone()) {
+              let lua = mlua::Lua::new();
+              let parent_path = path.clone();
+              
+              if let Ok(Some(dependencies)) = conf::load_lulu_conf_dependiencies(&lua, conf_string.clone()) {
+                let packages_to_install = dependencies;
+                match pkg_manager.install_packages(&packages_to_install, &parent_path).await {
+                  Ok(_) => {}
+                  Err(e) => eprintln!("Failed to resolve dependencies: {}", e),
+                }
+              } else {
+                eprintln!("No dependencies found in {}", conf_path.display());
+              }
+            } else {
+              eprintln!("Could not read configuration file: {}", conf_path.display());
             }
           }
-        }
+        }.await;
+        
         Ok(())
       }
       Commands::Build { path } => {
@@ -194,6 +207,67 @@ async fn main() -> Result<()> {
         Ok(())
       }
       Commands::Compile { file: _, output: _ } => Ok(()),
+      Commands::Update { packages, project } => {
+        let pkg_manager = PackageManager::new().map_err(|e| {
+          eprintln!("Failed to initialize package manager: {}", e);
+          mlua::Error::external(e)
+        })?;
+        
+        async {
+          for package in packages {
+            if let Err(e) = pkg_manager.clear_package_cache(package) {
+              eprintln!("Warning: Failed to clear cache for {}: {}", package, e);
+            }
+          }
+          
+          match pkg_manager.install_packages(packages, project).await {
+            Ok(_) => {}
+            Err(e) => {
+              eprintln!("Package update failed: {}", e);
+            }
+          }
+        }.await;
+        
+        Ok(())
+      }
+      Commands::Cache { cache_command } => {
+        let pkg_manager = PackageManager::new().map_err(|e| {
+          eprintln!("Failed to initialize package manager: {}", e);
+          mlua::Error::external(e)
+        })?;
+        
+        match cache_command {
+          CacheCommand::Clear => {
+            match pkg_manager.clear_cache() {
+              Ok(()) => println!("Package cache cleared successfully"),
+              Err(e) => eprintln!("Failed to clear cache: {}", e),
+            }
+          }
+          CacheCommand::List => {
+            match pkg_manager.list_cached_packages() {
+              Ok(packages) => {
+                if packages.is_empty() {
+                  println!("No cached packages found");
+                } else {
+                  println!("Cached packages:");
+                  for package in packages {
+                    println!("  - {}", package);
+                  }
+                }
+              }
+              Err(e) => eprintln!("Failed to list cached packages: {}", e),
+            }
+          }
+          CacheCommand::Remove { package_url } => {
+            match pkg_manager.clear_package_cache(package_url) {
+              Ok(()) => println!("Package cache cleared for: {}", package_url),
+              Err(e) => eprintln!("Failed to clear package cache: {}", e),
+            }
+          }
+        }
+        
+        Ok(())
+      }
     }
   }
 }

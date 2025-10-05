@@ -28,10 +28,11 @@ pub struct Lulu {
   pub mods: Vec<LuluMod>,
   pub lua: Lua,
   pub args: Vec<String>,
+  pub current: Option<PathBuf>
 }
 
 impl Lulu {
-  pub fn new(args: Option<Vec<String>>) -> Lulu {
+  pub fn new(args: Option<Vec<String>>, current: Option<PathBuf>) -> Lulu {
     let mods = Vec::new();
     let lua = unsafe { Lua::unsafe_new() };
 
@@ -39,6 +40,7 @@ impl Lulu {
       mods,
       lua,
       args: args.unwrap_or_default(),
+      current
     };
   }
 
@@ -231,6 +233,29 @@ impl Lulu {
     let req = req_chunk.set_environment(env.clone()).into_function()?;
 
     env.set("require", req)?;
+
+    if let Some(current) = self.current.clone() {
+      env.set("current_path", std::fs::canonicalize(current)?)?;
+    } else {
+      env.set("current_path", mlua::Value::Nil)?;
+    }
+
+    let current = self.current.clone();
+    let lookup_dylib = self.lua.create_function(move |_, name: String| {
+      let path = std::fs::canonicalize(current.clone().unwrap_or(PathBuf::from(".")))?;
+      let lib_folder = path.join(".lib/dylib").join(name.clone());
+      let dylib_here = path.join("dylib").join(name.clone());
+
+      if lib_folder.exists() {
+        Ok(lib_folder)
+      } else if dylib_here.exists() {
+        Ok(dylib_here)
+      } else {
+        Ok(name.into())
+      }
+    })?;
+
+    env.set("lookup_dylib", lookup_dylib)?;
 
     let chunk = chunk.set_environment(env);
 

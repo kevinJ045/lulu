@@ -1,2 +1,2 @@
 
-print([[sss]])
+print(current_path)

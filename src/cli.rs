@@ -34,11 +34,32 @@ pub enum Commands {
     output: PathBuf,
   },
   Build {
-    #[arg(name = "FILE")]
+    #[arg(name = "FILE", default_value = ".")]
     path: PathBuf,
   },
   Resolve {
-    #[arg(name = "FILE")]
+    #[arg(name = "FILE", default_value = ".")]
     item: String,
+  },
+  Update {
+    #[arg(name = "PACKAGES")]
+    packages: Vec<String>,
+    
+    #[arg(short, long, default_value = ".")]
+    project: PathBuf,
+  },
+  Cache {
+    #[command(subcommand)]
+    cache_command: CacheCommand,
+  },
+}
+
+#[derive(Subcommand)]
+pub enum CacheCommand {
+  Clear,
+  List,
+  Remove {
+    #[arg(name = "PACKAGE_URL")]
+    package_url: String,
   },
 }

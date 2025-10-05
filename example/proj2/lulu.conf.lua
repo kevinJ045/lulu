@@ -9,5 +9,5 @@ fetch = {
 }
 
 mods = {
-  main = "main.lua"
+  init = "main.lua"
 }

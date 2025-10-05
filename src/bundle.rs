@@ -172,15 +172,14 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
   Ok(())
 }
 
-pub fn run_bundle(mods: HashMap<String, LuLib>, args: Vec<String>) -> mlua::Result<()> {
-  let mut lulu = Lulu::new(Some(args));
+pub fn run_bundle(mods: HashMap<String, LuLib>, args: Vec<String>, current: Option<PathBuf>) -> mlua::Result<()> {
+  let mut lulu = Lulu::new(Some(args), current);
 
   reg_bundle_nods(&mut lulu, mods)?;
 
   lulu.preload_mods()?;
 
   let main_name = lulu.find_main()?;
-  println!("{}", main_name);
   lulu.exec_mod(main_name.as_str())?;
   Ok(())
 }
