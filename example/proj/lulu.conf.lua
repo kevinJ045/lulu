@@ -12,11 +12,11 @@ mods = {
 }
 
 include = {
-  "@lib"
+  "@proj3"
 }
 
 dependencies = {
-  "http://localhost:3000/lib.lulib"
+  "github:kevinj045/demo-lulu-proj-2"
 }
 
 build = function()
