@@ -2,10 +2,97 @@ use crate::lulu::Lulu;
 use mlua::Lua;
 use mlua::prelude::LuaError;
 use regex::Regex;
-// use std::sync::{Arc, Mutex};
+use std::fs;
+use std::io::Read;
 use tokio::time;
-// use std::rc::Rc;
-// use std::cell::RefCell;
+
+fn split_command(s: &str) -> Vec<String> {
+  let mut parts = Vec::new();
+  let mut cur = String::new();
+  let mut chars = s.chars().peekable();
+  let mut in_single = false;
+  let mut in_double = false;
+
+  while let Some(ch) = chars.next() {
+    match ch {
+      '\\' => {
+        if let Some(next) = chars.next() {
+          cur.push(next);
+        }
+      }
+      '\'' if !in_double => {
+        in_single = !in_single;
+      }
+      '"' if !in_single => {
+        in_double = !in_double;
+      }
+      c if c.is_whitespace() && !in_single && !in_double => {
+        if !cur.is_empty() {
+          parts.push(cur.clone());
+          cur.clear();
+        }
+      }
+      c => cur.push(c),
+    }
+  }
+
+  if !cur.is_empty() {
+    parts.push(cur);
+  }
+
+  parts
+}
+fn register_exec(lua: &Lua) -> mlua::Result<()> {
+  let exec = lua.create_function(|lua, (command, inherit): (String, Option<bool>)| {
+    let parts = split_command(&command);
+    if parts.is_empty() {
+      return Err(LuaError::external("empty command"));
+    }
+
+    let program = &parts[0];
+    let args = &parts[1..];
+
+    let inherit = inherit.unwrap_or(false);
+
+    if inherit {
+      let status = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .map_err(LuaError::external)?;
+
+      let result = lua.create_table()?;
+      result.set("status", status.code().unwrap_or(-1))?;
+      result.set("success", status.success())?;
+
+      Ok(mlua::Value::Table(result))
+    } else {
+      let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map_err(LuaError::external)?;
+
+      let result = lua.create_table()?;
+      result.set(
+        "stdout",
+        String::from_utf8_lossy(&output.stdout).to_string(),
+      )?;
+      result.set(
+        "stderr",
+        String::from_utf8_lossy(&output.stderr).to_string(),
+      )?;
+      result.set("status", output.status.code().unwrap_or(-1))?;
+      result.set("success", output.status.success())?;
+
+      Ok(mlua::Value::Table(result))
+    }
+  })?;
+
+  lua.globals().set("exec", exec)?;
+  Ok(())
+}
 
 pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   let mods = lulu.mods.clone();
@@ -69,14 +156,103 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   })?;
   lua.globals().set("ptr_set", ptr_set)?;
 
-  let ptr_free = lua.create_function(|lua, ptr: usize| {
-    unsafe {
-      drop(Box::from_raw(ptr as *mut mlua::RegistryKey));
-    }
-    lua.expire_registry_values();
-    Ok(())
-  })?;
-  lua.globals().set("ptr_free", ptr_free)?;
+  lua.globals().set(
+    "reads",
+    lua.create_function(|_, path: String| Ok(fs::read_to_string(path)?))?,
+  )?;
+
+  lua.globals().set(
+    "exists",
+    lua.create_function(|_, path: String| Ok(std::path::Path::new(&path).exists()))?,
+  )?;
+
+  lua.globals().set(
+    "mkdir",
+    lua.create_function(|_, path: String| {
+      fs::create_dir_all(&path)?;
+      Ok(())
+    })?,
+  )?;
+
+  lua.globals().set(
+    "cp",
+    lua.create_function(|_, (src, dest): (String, String)| {
+      fs::copy(&src, &dest)?;
+      Ok(())
+    })?,
+  )?;
+
+  lua.globals().set(
+    "rename",
+    lua.create_function(|_, (old, new): (String, String)| {
+      fs::rename(&old, &new)?;
+      Ok(())
+    })?,
+  )?;
+
+  lua.globals().set(
+    "mv",
+    lua.create_function(|_, (src, dest): (String, String)| {
+      fs::copy(&src, &dest)?;
+      fs::remove_file(&src)?;
+      Ok(())
+    })?,
+  )?;
+
+  lua.globals().set(
+    "rm",
+    lua.create_function(|_, path: String| {
+      let p = std::path::Path::new(&path);
+      if p.is_dir() {
+        fs::remove_dir_all(p)?;
+      } else if p.is_file() {
+        fs::remove_file(p)?;
+      }
+      Ok(())
+    })?,
+  )?;
+
+  lua.globals().set(
+    "read",
+    lua.create_function(|lua, path: String| {
+      let mut file = fs::File::open(&path)?;
+      let mut buffer = Vec::new();
+      file.read_to_end(&mut buffer)?;
+      lua.create_string(&buffer)
+    })?,
+  )?;
+
+  register_exec(lua)?;
+
+  lua.globals().set(
+    "exit",
+    lua.create_function(|_, code: Option<i32>| {
+      std::process::exit(code.unwrap_or(0));
+      #[allow(unreachable_code)]
+      Ok(())
+    })?,
+  )?;
+
+  lua.globals().set(
+    "foreach",
+    lua.create_function(|lua, items: Vec<mlua::Value>| {
+      Ok(lua.create_function(move |_, func: mlua::Function| {
+        let mut mapped: Vec<mlua::Value> = Vec::new();
+        for i in items.clone() {
+          mapped.push(func.call(i)?)
+        }
+        Ok(mapped)
+      }))
+    })?,
+  )?;
+
+  lua.globals().set(
+    "range",
+    lua.create_function(|_, (x, y, z): (usize, usize, Option<usize>)| {
+      let nums: Vec<usize> = (x..=y).step_by(z.unwrap_or(1) as usize).collect();
+      Ok(nums)
+    })?,
+  )?;
 
   let regex_match_all = lua.create_function(|lua, (pattern, text): (String, String)| {
     let re =

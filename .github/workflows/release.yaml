@@ -89,7 +89,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v1
         with:
-          files: dist/lulu_installer.exe
+          files: dist/lulu_installer.msi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   

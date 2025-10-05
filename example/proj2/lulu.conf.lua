@@ -8,6 +8,8 @@ fetch = {
 	lulib = "http://localhost:3000/lib.lulib"
 }
 
+macros = require("_macros")
+
 mods = {
   init = "main.lua"
 }

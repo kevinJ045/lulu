@@ -33,6 +33,19 @@ pub enum Commands {
     #[arg(name = "OUTPUT_FILE")]
     output: PathBuf,
   },
+  New {
+    #[arg(name = "NAME")]
+    name: String,
+
+    #[arg(short = 'g', long)]
+    git: bool,
+
+    #[arg(short = 't', long)]
+    lib: bool,
+
+    #[arg(short = 'i', long)]
+    ignore: bool,
+  },
   Build {
     #[arg(name = "FILE", default_value = ".")]
     path: PathBuf,
@@ -44,7 +57,7 @@ pub enum Commands {
   Update {
     #[arg(name = "PACKAGES")]
     packages: Vec<String>,
-    
+
     #[arg(short, long, default_value = ".")]
     project: PathBuf,
   },

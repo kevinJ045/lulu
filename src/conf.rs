@@ -1,4 +1,5 @@
 use mlua::{Lua, UserData};
+use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -7,6 +8,7 @@ pub struct LuluConf {
   pub manifest: Option<mlua::Table>,
   pub mods: Option<HashMap<String, String>>,
   pub include: Option<Vec<String>>,
+  pub macros: Option<String>,
 }
 
 impl UserData for LuluConf {
@@ -166,21 +168,29 @@ pub fn load_lulu_conf_code(lua: &Lua, code: CodeType) -> mlua::Result<LuluConf> 
     .get::<Vec<String>>("include")
     .map(Some)
     .unwrap_or(None);
+  let macros = globals
+    .get::<String>("macros")
+    .map(Some)
+    .unwrap_or(None);
   
   globals.set("manifest", mlua::Value::Nil)?;
   globals.set("mods", mlua::Value::Nil)?;
+  globals.set("macros", mlua::Value::Nil)?;
   globals.set("include", mlua::Value::Nil)?;
   
   Ok(LuluConf {
     manifest,
     mods,
     include,
+    macros
   })
 }
 
 pub fn load_lulu_conf(lua: &Lua, path: PathBuf) -> mlua::Result<LuluConf> {
   let code = std::fs::read_to_string(path)?;
-  load_lulu_conf_code(lua, CodeType::Code(code))
+  load_lulu_conf_code(lua, CodeType::Code(
+    crate::compiler::wrap_macros(code.as_str())
+  ))
 }
 
 pub fn load_lulu_conf_from_bytecode(lua: &Lua, bytecode: Vec<u8>) -> mlua::Result<LuluConf> {

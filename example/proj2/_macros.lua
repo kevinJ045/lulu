@@ -1,6 +1,4 @@
-
-local items = range(0, 10, 5)
-
+return [[
 macro {
   for_each ($key, $iterator, $expr) {
     for $key in ipairs($iterator) do
@@ -8,8 +6,9 @@ macro {
     end
   }
 }
-
-for_each! item, items {
-  print(item)
+macro {
+  hello ($something) {
+    print("Hello, " .. $something)
+  }
 }
-
+]]

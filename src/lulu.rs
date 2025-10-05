@@ -1,4 +1,4 @@
-use crate::compiler::{self};
+use crate::compiler::{self, Compiler};
 use crate::conf::{LuluConf, find_lulu_conf, load_lulu_conf};
 use crate::ops;
 use mlua::{Lua, chunk};
@@ -28,19 +28,22 @@ pub struct Lulu {
   pub mods: Vec<LuluMod>,
   pub lua: Lua,
   pub args: Vec<String>,
-  pub current: Option<PathBuf>
+  pub current: Option<PathBuf>,
+  pub compiler: Compiler
 }
 
 impl Lulu {
   pub fn new(args: Option<Vec<String>>, current: Option<PathBuf>) -> Lulu {
     let mods = Vec::new();
     let lua = unsafe { Lua::unsafe_new() };
+    let compiler: Compiler = Compiler::new();
 
     return Lulu {
       mods,
       lua,
       args: args.unwrap_or_default(),
-      current
+      current,
+      compiler
     };
   }
 
@@ -153,7 +156,7 @@ impl Lulu {
   pub fn add_mod_from_code(&mut self, name: String, code: String, conf: Option<LuluConf>) {
     self.add_mod(LuluMod {
       name,
-      source: LuluModSource::Code(compiler::compile(code.as_str())),
+      source: LuluModSource::Code(self.compiler.clone().compile(code.as_str())),
       conf,
     });
   }
@@ -175,7 +178,7 @@ impl Lulu {
     let raw = std::fs::read(&path)?;
 
     let source = match std::str::from_utf8(&raw) {
-      Ok(code) => LuluModSource::Code(compiler::compile(code)),
+      Ok(code) => LuluModSource::Code(self.compiler.compile(code)),
       Err(_) => LuluModSource::Bytecode(raw),
     };
 
@@ -292,6 +295,10 @@ impl Lulu {
             Some(c.clone()),
           )?;
         }
+      }
+      
+      if let Some(macros) = c.macros.clone() {
+        self.compiler.compile(&macros);
       }
       
       if let Some(include) = c.include.clone() {

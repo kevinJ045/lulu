@@ -1,5 +1,4 @@
-
-local items = range(0, 10, 5)
+local items = {0, 5, 10}
 
 macro {
   for_each ($key, $iterator, $expr) {
@@ -12,4 +11,3 @@ macro {
 for_each! item, items {
   print(item)
 }
-
