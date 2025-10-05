@@ -1,0 +1,168 @@
+name: Cross-Platform Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish'
+        required: true
+        default: '0.0.1'
+
+permissions:
+  contents: write
+
+jobs:
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        run: cargo build --release
+      - name: Package .exe
+        run: |
+          mkdir -p dist
+          cp target/release/lulu.exe dist/lulu.exe
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: dist/lulu.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+  build-windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+  
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+  
+      - name: Build
+        run: cargo build --release
+  
+      - name: Prepare Installer Files
+        run: |
+          mkdir dist
+          cp target/release/lulu.exe dist/lulu.exe
+  
+      - name: Create Inno Setup Script
+        run: |
+          @"
+          [Setup]
+          AppName=lulu
+          AppVersion=1.0
+          DefaultDirName={localappdata}\lulu
+          DefaultGroupName=lulu
+          OutputDir=dist
+          OutputBaseFilename=lulu_installer
+          Compression=lzma
+          SolidCompression=yes
+
+          [Dirs]
+          Name: "{localappdata}\lulu\bin"
+
+          [Files]
+          Source: "lulu.exe"; DestDir: "{localappdata}\lulu\bin"; Flags: ignoreversion
+
+          [Run]
+          Filename: "{localappdata}\lulu\bin\\lulu.exe"; Description: "Run lulu"; Flags: nowait postinstall skipifsilent
+
+          [Registry]
+          Root: HKCU; Subkey: "Environment"; \
+          ValueType: string; ValueName: "Path"; ValueData: "{olddata};{localappdata}\lulu\bin"; Flags: preservestringtype uninsdeletevalue
+
+          [Code]
+          function InitializeSetup(): Boolean;
+          begin
+            Result := True;
+          end;
+          "@ | Out-File -Encoding ASCII dist/lulu_installer.iss
+
+      - name: Build Installer
+        run: |
+          $iss = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iss dist/lulu_installer.iss
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: dist/lulu_installer.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+  build-linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install MUSL tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install GNU target
+        run: rustup target add x86_64-unknown-linux-gnu
+
+      - name: Build
+        run: |
+          cargo build --release --target x86_64-unknown-linux-gnu
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/lulu dist/lulu
+          tar -czvf dist/lulu-linux_x86_64.tar.gz -C dist lulu
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: dist/lulu-linux_x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies for cross-compilation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Add ARM64 GNU target
+        run: rustup target add aarch64-unknown-linux-gnu
+
+      - name: Build for aarch64
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --target aarch64-unknown-linux-gnu
+          mkdir -p dist
+          cp target/aarch64-unknown-linux-gnu/release/lulu dist/lulu
+          tar -czvf dist/lulu-linux_arm64.tar.gz -C dist lulu
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: dist/lulu-linux_arm64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/lulu dist/lulu
+          sudo rm -rf /usr/local/lib/android
+          cargo clean
+          hdiutil create dist/lulu-darwin.dmg -srcfolder dist -volname "lulu"
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: dist/lulu-darwin.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
