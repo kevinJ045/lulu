@@ -1,4 +1,4 @@
-use crate::compiler::{self, Compiler};
+use crate::compiler::{Compiler};
 use crate::conf::{LuluConf, find_lulu_conf, load_lulu_conf};
 use crate::ops;
 use mlua::{Lua, chunk};

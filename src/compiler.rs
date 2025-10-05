@@ -141,18 +141,18 @@ impl Lexer {
     Token::Number(s.parse().unwrap(), self.tokens.clone())
   }
 
-  fn read_identifier(&mut self) -> Token {
-    let mut s = String::new();
-    while let Some(ch) = self.peek_char() {
-      if ch.is_ascii_alphanumeric() || ch == '_' {
-        s.push(ch);
-        self.next_char();
-      } else {
-        break;
-      }
-    }
-    Token::Identifier(s, self.tokens.clone())
-  }
+  // fn read_identifier(&mut self) -> Token {
+  //   let mut s = String::new();
+  //   while let Some(ch) = self.peek_char() {
+  //     if ch.is_ascii_alphanumeric() || ch == '_' {
+  //       s.push(ch);
+  //       self.next_char();
+  //     } else {
+  //       break;
+  //     }
+  //   }
+  //   Token::Identifier(s, self.tokens.clone())
+  // }
 
   fn read_identifier_or_macro(&mut self) -> Token {
     let mut s = String::new();
