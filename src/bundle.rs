@@ -162,7 +162,13 @@ pub fn load_embedded_scripts() -> Option<HashMap<String, LuLib>> {
 pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::Result<()> {
   for (name, data) in mods.iter() {
     let conf = if let Some(confbytes) = data.conf.clone() {
-      Some(load_lulu_conf_from_bytecode(&lulu.lua, confbytes)?)
+      let conf = load_lulu_conf_from_bytecode(&lulu.lua, confbytes)?;
+
+      if let Some(macros) = conf.macros.clone() {
+        lulu.compiler.compile(&macros);
+      }
+      
+      Some(conf)
     } else {
       None
     };

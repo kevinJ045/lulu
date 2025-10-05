@@ -296,7 +296,7 @@ impl Lulu {
           )?;
         }
       }
-      
+
       if let Some(macros) = c.macros.clone() {
         self.compiler.compile(&macros);
       }

@@ -77,6 +77,10 @@ pub fn conf_to_string(conf: &LuluConf) -> mlua::Result<String> {
 ",
     );
   }
+  
+  if let Some(macros) = &conf.macros {
+    out.push_str(format!("  macros = [[{}]]\n", macros).as_str());
+  }
 
   out.push('}');
   Ok(out)

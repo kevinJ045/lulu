@@ -1,4 +1,3 @@
-return [[
 macro {
   for_each ($key, $iterator, $expr) {
     for $key in ipairs($iterator) do
@@ -11,4 +10,3 @@ macro {
     print("Hello, " .. $something)
   }
 }
-]]
