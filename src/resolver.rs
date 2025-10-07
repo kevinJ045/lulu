@@ -53,17 +53,19 @@ pub fn parse_github_dep(s: &str) -> Option<GitHubDependency> {
   })
 }
 
-// fn current_platform() -> &'static str {
-//   if cfg!(target_os = "linux") {
-//     "linux"
-//   } else if cfg!(target_os = "windows") {
-//     "windows"
-//   } else if cfg!(target_os = "macos") {
-//     "macos"
-//   } else {
-//     "unknown"
-//   }
-// }
+pub fn current_platform() -> &'static str {
+  if cfg!(target_os = "linux") {
+    "linux"
+  } else if cfg!(target_os = "windows") {
+    "windows"
+  } else if cfg!(target_os = "macos") {
+    "macos"
+  } else if cfg!(target_os = "freebsd") {
+    "freebsd"
+  } else {
+    "unknown"
+  }
+}
 
 // async fn download_file(url: &str, dest: &Path) -> Result<()> {
 //   let response = reqwest::get(url).await?.error_for_status()?;

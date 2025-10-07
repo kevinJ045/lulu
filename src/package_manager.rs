@@ -479,15 +479,7 @@ impl PackageManager {
   }
 
   fn get_dylib_extension(&self) -> &'static str {
-    if cfg!(target_os = "linux") {
-      "so"
-    } else if cfg!(target_os = "windows") {
-      "dll"
-    } else if cfg!(target_os = "macos") {
-      "dylib"
-    } else {
-      "so" // default cuz linux >>>>> others
-    }
+    crate::resolver::current_platform()
   }
 
   pub async fn install_packages(

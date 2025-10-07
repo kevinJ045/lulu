@@ -2,7 +2,6 @@
 A simple Lua runtime that also helps with bundling Lua code, resolving Lua requirements, and building a final executable with libraries.
 
 ## Features
-
 *   **Lua Runtime:** Execute Lua scripts.
 *   **Code Bundling:** Bundle multiple Lua files into a single file.
 *   **Dependency Resolution:** Resolve Lua module requirements.
@@ -76,6 +75,10 @@ lulu cache remove <package_url>
 *   [x] Building lua projects
 *   [x] Building github repos
 *   [x] Caches
+*   [x] Macros
+*   [x] Builtin Macros (like `import!`, `test!`, `cfg!`)
+*   [x] Export Macros (through `lulu.conf.lua`)
+*   [x] Basic Testing
 *   [ ] Packager for Windows, Linux, and macOS
 *   [ ] Testing framework integration
 *   [ ] Additional features for FFI

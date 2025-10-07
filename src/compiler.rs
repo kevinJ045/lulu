@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::conf::LuluConf;
+
 #[derive(Debug, Clone)]
 pub struct MacroDefinition {
   pub name: String,
@@ -14,9 +16,62 @@ pub struct MacroRegistry {
 
 impl MacroRegistry {
   pub fn new() -> Self {
-    MacroRegistry {
-      macros: HashMap::new(),
-    }
+    let mut macros = HashMap::new();
+
+    macros.insert(
+      "for_each".to_string(),
+      MacroDefinition {
+        name: "for_each".to_string(),
+        params: vec![
+          "item".to_string(),
+          "iterator".to_string(),
+          "block".to_string(),
+        ],
+        body: tokenize("for $item in ipairs($iterator) do\n$block\nend"),
+      },
+    );
+    macros.insert(
+      "lml".to_string(),
+      MacroDefinition {
+        name: "lml".to_string(),
+        params: vec!["expr".to_string()],
+        body: tokenize("lml_into(nil)"),
+      },
+    );
+    macros.insert(
+      "cfg".to_string(),
+      MacroDefinition {
+        name: "cfg".to_string(),
+        params: vec!["expr".to_string()],
+        body: tokenize("into(nil)"),
+      },
+    );
+    macros.insert(
+      "package".to_string(),
+      MacroDefinition {
+        name: "package".to_string(),
+        params: vec!["expr".to_string()],
+        body: tokenize("into(nil)"),
+      },
+    );
+    macros.insert(
+      "import".to_string(),
+      MacroDefinition {
+        name: "import".to_string(),
+        params: vec!["name".to_string(), "expr".to_string()],
+        body: tokenize("local $name = require($expr)"),
+      },
+    );
+    macros.insert(
+      "test".to_string(),
+      MacroDefinition {
+        name: "test".to_string(),
+        params: vec!["expr".to_string()],
+        body: tokenize("into(nil)"),
+      },
+    );
+
+    MacroRegistry { macros }
   }
 
   pub fn define_macro(&mut self, name: String, params: Vec<String>, body: Vec<Token>) {
@@ -263,12 +318,20 @@ pub fn tokenize(input: &str) -> Vec<Token> {
   tokens
 }
 
+fn get_token_string(tok: &Token) -> Option<&String> {
+  match tok {
+    Token::String(s, _) => Some(s),
+    Token::Identifier(s, _) => Some(s),
+    _ => None,
+  }
+}
+
 fn peek_through(
   tokens: &[Token],
   current: usize,
   how_many: isize,
   skip_whitespace: bool,
-) -> Option<&Token> {
+) -> Option<Token> {
   if tokens.is_empty() {
     return None;
   }
@@ -294,12 +357,36 @@ fn peek_through(
   if idx < 0 || idx >= tokens.len() as isize {
     None
   } else {
-    Some(&tokens[idx as usize])
+    Some(with_idx(&tokens[idx as usize], idx as usize))
   }
 }
 
-fn get_token_idx(tok: &Token) -> usize {
-  match *tok {
+fn with_idx(tok: &Token, idx: usize) -> Token {
+  match tok {
+    Token::EOF(_) => Token::EOF(idx),
+    Token::String(s, _) => Token::String(s.clone(), idx),
+    Token::BraceString(s, _) => Token::BraceString(s.clone(), idx),
+    Token::Symbol(s, _) => Token::Symbol(s.clone(), idx),
+    Token::Identifier(s, _) => Token::Identifier(s.clone(), idx),
+    Token::Number(s, _) => Token::Number(s.clone(), idx),
+    Token::Whitespace(s, _) => Token::Whitespace(s.clone(), idx),
+    Token::Macro(_) => Token::Macro(idx),
+    Token::MacroCall(s, _) => Token::MacroCall(s.clone(), idx),
+    Token::MacroParam(s, _) => Token::MacroParam(s.clone(), idx),
+    Token::LeftBrace(_) => Token::LeftBrace(idx),
+    Token::RightBrace(_) => Token::RightBrace(idx),
+    Token::LeftParen(_) => Token::LeftBrace(idx),
+    Token::RightParen(_) => Token::RightParen(idx),
+    Token::Comma(_) => Token::Comma(idx),
+  }
+}
+
+// fn get_token_idx(tokens: &[Token], tok: &Token) -> usize {
+//   tokens.iter().position(|t| t == tok).unwrap()
+// }
+
+fn extract_token_idx(tok: Token) -> usize {
+  match tok {
     Token::EOF(i)
     | Token::String(_, i)
     | Token::BraceString(_, i)
@@ -344,25 +431,64 @@ macro_rules! check_token {
   };
 }
 
-#[derive(Debug, Clone)]
-pub struct Compiler {
-  macros: MacroRegistry,
-}
+fn find_braces(s: &str) -> Vec<(usize, usize)> {
+  let mut stack = Vec::new();
+  let mut positions = Vec::new();
 
-impl Compiler {
-  pub fn new() -> Self {
-    Compiler {
-      macros: MacroRegistry::new(),
+  for (i, c) in s.char_indices() {
+    if c == '{' {
+      stack.push(i);
+    } else if c == '}' {
+      if let Some(start) = stack.pop() {
+        positions.push((start, i + 1)); // include closing brace
+      }
     }
   }
 
-  pub fn compile(&mut self, code: &str) -> String {
+  positions
+}
+
+#[derive(Debug, Clone)]
+pub struct Compiler {
+  macros: MacroRegistry,
+  defs: HashMap<String, String>,
+  pub importmap: HashMap<String, (String, Option<String>, Option<LuluConf>)>,
+  pub import: Option<fn(String, String, Option<String>, Option<LuluConf>)>,
+  pub last_mod: Option<String>,
+  pub env: String,
+  pub current_test: Option<String>,
+}
+
+impl Compiler {
+  pub fn new(import: Option<fn(String, String, Option<String>, Option<LuluConf>)>) -> Self {
+    let mut defs = HashMap::new();
+
+    defs.insert("OS".to_string(), std::env::consts::OS.to_lowercase());
+
+    Compiler {
+      macros: MacroRegistry::new(),
+      defs,
+      import,
+      importmap: HashMap::new(),
+      last_mod: None,
+      env: "dev".to_string(),
+      current_test: None,
+    }
+  }
+
+  pub fn compile(&mut self, code: &str, path: Option<String>, conf: Option<LuluConf>) -> String {
     let tokens = tokenize(code);
-    let processed_tokens = self.process_macros(tokens);
+    let processed_tokens = self.process_macros(tokens, path, conf);
+    // println!("{}", self.generate_code(processed_tokens.clone()));
     self.generate_code(processed_tokens)
   }
 
-  fn process_macros(&mut self, tokens: Vec<Token>) -> Vec<Token> {
+  fn process_macros(
+    &mut self,
+    tokens: Vec<Token>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
     let mut result = Vec::new();
     let mut i = 0;
 
@@ -372,7 +498,14 @@ impl Compiler {
           i = self.parse_macro_definition(&tokens, i, &mut result);
         }
         Token::MacroCall(name, _) => {
-          i = self.expand_macro_call(&tokens, i, &mut result, name.clone());
+          i = self.expand_macro_call(
+            &tokens,
+            i,
+            &mut result,
+            name.clone(),
+            path.clone(),
+            conf.clone(),
+          );
         }
         _ => {
           result.push(tokens[i].clone());
@@ -496,13 +629,17 @@ impl Compiler {
   }
 
   fn expand_macro_call(
-    &self,
+    &mut self,
     tokens: &[Token],
     start: usize,
     result: &mut Vec<Token>,
     macro_name: String,
+    path: Option<String>,
+    conf: Option<LuluConf>,
   ) -> usize {
-    let macro_def = match self.macros.get_macro(&macro_name) {
+    let s = self.clone();
+    let mac = s.macros.get_macro(&macro_name);
+    let macro_def = match mac {
       Some(def) => def,
       _ => panic!("Undefined macro: {}", macro_name),
     };
@@ -527,21 +664,22 @@ impl Compiler {
         }
         Token::LeftBrace(_) => {
           brace_count += 1;
-          if brace_count < 1 {
+          if brace_count > 1 {
             current_arg.push(tokens[i].clone());
           }
           i += 1;
         }
         Token::RightBrace(_) => {
           brace_count -= 1;
-          i += 1;
 
           if brace_count == 0 && paren_count == 0 {
+            i += 1;
             if i >= tokens.len() || !matches!(tokens[i], Token::Comma(_)) {
               break;
             }
           } else {
             current_arg.push(tokens[i].clone());
+            i += 1;
           }
         }
         Token::Comma(_) if brace_count == 0 && paren_count == 0 => {
@@ -557,6 +695,19 @@ impl Compiler {
           }
           i += 1;
         }
+        Token::Macro(_) => {
+          i = self.parse_macro_definition(&tokens, i, &mut current_arg);
+        }
+        Token::MacroCall(name, _) => {
+          i = self.expand_macro_call(
+            &tokens,
+            i,
+            &mut current_arg,
+            name.clone(),
+            path.clone(),
+            conf.clone(),
+          );
+        }
         _ => {
           current_arg.push(tokens[i].clone());
           i += 1;
@@ -568,10 +719,241 @@ impl Compiler {
       args.push(current_arg);
     }
 
-    let expanded = self.substitute_macro_params(&macro_def.body, &macro_def.params, &args);
+    let expanded = if macro_name == "lml" {
+      tokenize(crate::lml::compile_lml(self.generate_code(args[0].clone()), None).as_str())
+    } else if macro_name == "cfg" {
+      self.compile_cfg(args, path, conf)
+    } else if macro_name == "test" {
+      self.compile_tests(args, path, conf)
+    } else if macro_name == "import" {
+      let mut cargs = args.clone();
+      let vname = get_token_string(&args[0][0]).unwrap();
+      let cpath = get_token_string(&args[1][0]).unwrap();
+      let name = std::path::Path::new(cpath)
+        .file_stem()
+        .and_then(|s| Some(s.to_string_lossy().to_string()))
+        .unwrap_or(vname.clone());
+
+      if let Some(f) = self.import {
+        f(name.clone(), cpath.clone(), path.clone(), conf.clone());
+      };
+
+      self
+        .importmap
+        .insert(name.clone(), (cpath.clone(), path.clone(), conf.clone()));
+      cargs[1] = vec![Token::String(format!("{}", name), 0)];
+      self.substitute_macro_params(&macro_def.body, &macro_def.params, &cargs)
+    } else if macro_name == "package" {
+      let name = get_token_string(&args[0][0]).unwrap();
+      self.last_mod = Some(name.clone());
+      Vec::new()
+    } else {
+      self.substitute_macro_params(&macro_def.body, &macro_def.params, &args)
+    };
     result.extend(expanded);
 
     i
+  }
+
+  fn get_env(&self, name: &String) -> Option<String> {
+    if let Some(value) = self.defs.get(name) {
+      Some(value.clone())
+    } else if let Ok(value) = std::env::var(name) {
+      Some(value)
+    } else {
+      None
+    }
+  }
+
+  fn compile_cfg(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
+    let name = self.generate_code(args[0].clone()).trim().to_string();
+
+    let tokens = if name == format!("OS_{}", std::env::consts::OS.to_uppercase()) {
+      args[1].clone()
+    } else if name == format!("ARCH_{}", std::env::consts::ARCH) {
+      args[1].clone()
+    } else if name == "set" {
+      let c: Vec<String> = self
+        .generate_code(args[1].clone())
+        .trim()
+        .to_string()
+        .split('=')
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
+
+      self
+        .defs
+        .insert(c[0].trim().to_string(), c[1].trim().to_string());
+      Vec::new()
+    } else if let Some(value) = self.get_env(&name) {
+      let tokens = &args[1];
+      let mut i = 0;
+
+      while i < tokens.len() {
+        if matches!(tokens[i], Token::Whitespace(_, _)) {
+          i += 1;
+        } else {
+          break;
+        }
+      }
+
+      let is_branched = match (tokens.get(i), tokens.get(i + 1)) {
+        (Some(Token::Identifier(_, _)), Some(Token::LeftBrace(_))) => true,
+        (Some(Token::Identifier(_, _)), Some(Token::Whitespace(_, _))) => {
+          matches!(tokens.get(i + 2), Some(Token::LeftBrace(_)))
+        }
+        (Some(Token::String(_, _)), Some(Token::LeftBrace(_))) => true,
+        (Some(Token::String(_, _)), Some(Token::Whitespace(_, _))) => {
+          matches!(tokens.get(i + 2), Some(Token::LeftBrace(_)))
+        }
+        _ => false,
+      };
+
+      // println!("{} {}", name, is_branched);
+
+      if is_branched {
+        // println!("Exec is branched");
+        let mut branches: Vec<(String, Vec<Token>)> = Vec::new();
+
+        while i < tokens.len() {
+          let name = match &tokens[i] {
+            Token::Identifier(name, _) | Token::String(name, _) => name.clone(),
+            Token::Whitespace(_, _) => {
+              i += 1;
+              continue;
+            }
+            other => panic!("Expected name identifier, got {:?}", other),
+          };
+          i += 1;
+
+          if let Token::Whitespace(_, _) = tokens
+            .get(i)
+            .unwrap_or(&Token::Whitespace("".to_string(), 0))
+          {
+            i += 1;
+          }
+
+          match tokens.get(i) {
+            Some(Token::LeftBrace(_)) => i += 1,
+            other => panic!("Expected '{{' after name, got {:?}", other),
+          }
+
+          let start = i;
+          let mut brace_count = 1;
+          while brace_count > 0 {
+            match &tokens[i] {
+              Token::LeftBrace(_) => brace_count += 1,
+              Token::RightBrace(_) => brace_count -= 1,
+              _ => {}
+            }
+            i += 1;
+          }
+          let end = i - 1;
+          let branch_tokens = tokens[start..end].to_vec();
+          branches.push((name, branch_tokens));
+        }
+
+        let current = value.clone().to_lowercase();
+        if let Some((_, tok)) = branches.iter().find(|(os, _)| os.to_lowercase() == current) {
+          tok.clone()
+        } else {
+          match args.get(2) {
+            Some(arg2) => arg2.clone(),
+            _ => Vec::new(),
+          }
+        }
+      } else {
+        // println!("Exec non branched");
+        tokens.clone()
+      }
+    } else {
+      match args.get(2) {
+        Some(arg2) => arg2.clone(),
+        _ => Vec::new(),
+      }
+    };
+
+    self.process_macros(tokens, path, conf)
+  }
+
+  fn compile_tests(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
+    if self.env == "test" {
+      let mut branches: Vec<(String, Vec<Token>)> = Vec::new();
+      let tokens = &args[0];
+      let mut i = 0;
+
+      while i < tokens.len() {
+        let name = match &tokens[i] {
+          Token::Identifier(name, _) | Token::String(name, _) => name.clone(),
+          Token::Whitespace(_, _) => {
+            i += 1;
+            continue;
+          }
+          other => panic!("Expected name identifier, got {:?}", other),
+        };
+        i += 1;
+
+        if let Token::Whitespace(_, _) = tokens
+          .get(i)
+          .unwrap_or(&Token::Whitespace("".to_string(), 0))
+        {
+          i += 1;
+        }
+
+        match tokens.get(i) {
+          Some(Token::LeftBrace(_)) => i += 1,
+          other => panic!("Expected '{{' after name, got {:?}", other),
+        }
+
+        let start = i;
+        let mut brace_count = 1;
+        while brace_count > 0 {
+          match &tokens[i] {
+            Token::LeftBrace(_) => brace_count += 1,
+            Token::RightBrace(_) => brace_count -= 1,
+            _ => {}
+          }
+          i += 1;
+        }
+        let end = i - 1;
+        let mut branch_tokens = Vec::new();
+        branch_tokens.extend(tokenize(format!("local {} = function()", name).as_str()));
+        branch_tokens.extend(tokens[start..end].to_vec());
+        branch_tokens.extend(tokenize(format!("end\nlocal ok_{name}, err_{name} = pcall({name})\nif ok_{name} then\n  print(\"Finished test: {name}\")\nelse\n  print(\"Test {name} failed due to:\", err_{name})\nend", name = name).as_str()));
+        branches.push((name, branch_tokens));
+      }
+
+      self.process_macros(if let Some(current) = self.current_test.clone() {
+        if let Some((_, tok)) = branches.iter().find(|(os, _)| os.to_lowercase() == current) {
+          tok.clone()
+        } else {
+          match args.get(2) {
+            Some(arg2) => arg2.clone(),
+            _ => Vec::new(),
+          }
+        }
+      } else {
+        let mut v: Vec<Token> = Vec::new();
+        for (_, value) in branches.iter() {
+          v.extend(value.clone());
+        }
+        v
+      }, path, conf)
+    } else {
+      Vec::new()
+    }
   }
 
   fn substitute_macro_params(
@@ -612,6 +994,39 @@ impl Compiler {
       let token = &tokens[i];
 
       match token {
+        Token::Identifier(name, _) if name == "f" => {
+          check_token!(&tokens, i, 1, true, Token::String(s, _) => {
+            let string_token = s.replace("{{", "\0LEFT_BRACE\0")
+                        .replace("}}", "\0RIGHT_BRACE\0");
+
+            let mut formatted = String::new();
+            let mut last = 0;
+
+            for (start, end) in find_braces(&string_token) {
+              if start > last {
+                let literal = &string_token[last..start];
+                formatted.push_str(&format!("\"{}\" .. ", literal));
+              }
+
+              let expr = &string_token[start + 1..end - 1]; // skip {}
+              formatted.push_str(&format!("({}) .. ", expr));
+
+              last = end;
+            }
+
+            if last < string_token.len() {
+                formatted.push_str(&format!("\"{}\"", &string_token[last..]));
+            } else {
+              if formatted.ends_with(" .. ") {
+                formatted.truncate(formatted.len() - 4);
+              }
+            }
+
+            result.push_str(&formatted.replace("\0LEFT_BRACE\0", "{")
+                     .replace("\0RIGHT_BRACE\0", "}"));
+            i += 1;
+          }, result.push_str(name));
+        }
         Token::Identifier(name, _) => {
           result.push_str(name);
         }
@@ -625,22 +1040,28 @@ impl Compiler {
           result.push_str(&format!("[[{}]]", s));
         }
         Token::Symbol(sym, _) if sym == "&" => {
-          check_token!(&tokens, i, 1, true, Token::String(current_token, _) => {
+          check_token!(&tokens, i, 1, true, Token::String(current_token, _)=> {
             result.push_str(format!("ptr_of({:?})", current_token).as_str());
             i += 1;
-          }, result.push_str(sym));
+          }, check_token!(&tokens, i, 1, true, Token::Number(current_token, _) => {
+            result.push_str(format!("ptr_of({:?})", current_token).as_str());
+            i += 1;
+          }, check_token!(&tokens, i, 1, true, Token::Identifier(current_token, _) => {
+            result.push_str(format!("ptr_of({})", current_token).as_str());
+            i += 1;
+          }, result.push_str(sym))));
         }
         Token::Symbol(sym, _) if sym == "*" => {
           check_token!(&tokens, i, 1, false, Token::Identifier(current_token, ind) => {
-            check_token!(&tokens, *ind, 1, true, Token::Symbol(char, ind) if char == &'='.to_string() => {
-              let next_token = peek_through(&tokens, *ind, 1, true).unwrap_or(&Token::EOF(0));
+            check_token!(&tokens, ind, 1, true, Token::Symbol(char, ind) if char == '='.to_string() => {
+              let next_token = &peek_through(&tokens, ind, 1, true).unwrap_or(Token::EOF(0));
               result.push_str(format!("ptr_set({}, {})", current_token, match next_token {
                  Token::String(s, _) => format!("{:?}", s),
                  Token::Identifier(s, _) => format!("{}", s),
                  Token::Number(s, _) => format!("{}", s),
                  _ => panic!("You can only set a pointer to a preset value")
               }).as_str());
-              i = get_token_idx(next_token)
+              i = extract_token_idx(next_token.clone());
             }, {
               result.push_str(format!("ptr_deref({})", current_token).as_str());
               i += 1;
@@ -682,8 +1103,8 @@ impl Compiler {
 }
 
 pub fn compile(code: &str) -> String {
-  let mut compiler = Compiler::new();
-  compiler.compile(code)
+  let mut compiler = Compiler::new(None);
+  compiler.compile(code, None, None)
 }
 
 pub fn wrap_macros(input: &str) -> String {

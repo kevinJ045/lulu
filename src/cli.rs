@@ -19,6 +19,16 @@ pub enum Commands {
     #[arg(trailing_var_arg = true)]
     args: Vec<String>,
   },
+  Test {
+    #[arg(name = "FILE")]
+    file: PathBuf,
+
+    #[arg(short = 't', long)]
+    test: Option<String>,
+
+    #[arg(trailing_var_arg = true)]
+    args: Vec<String>,
+  },
   Bundle {
     #[arg(name = "FILE")]
     file: PathBuf,
@@ -47,11 +57,11 @@ pub enum Commands {
     ignore: bool,
   },
   Build {
-    #[arg(name = "FILE", default_value = ".")]
+    #[arg(name = "PATH", default_value = ".")]
     path: PathBuf,
   },
   Resolve {
-    #[arg(name = "FILE", default_value = ".")]
+    #[arg(name = "URL", default_value = ".")]
     item: String,
   },
   Update {

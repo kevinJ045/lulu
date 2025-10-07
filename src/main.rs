@@ -1,4 +1,4 @@
-use crate::bundle::{load_lulib, make_bin, run_bundle, write_bundle};
+use crate::bundle::{bundle_lulu_or_exec, load_lulib, make_bin, run_bundle, write_bundle};
 use crate::cli::{CacheCommand, Cli, Commands};
 use crate::conf::conf_to_string;
 use crate::lulu::{LuLib, Lulu, LuluModSource};
@@ -9,32 +9,41 @@ use mlua::Result;
 use mlua::prelude::LuaError;
 use std::collections::HashMap;
 use std::fs::File;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 mod bundle;
 mod cli;
 pub mod compiler;
 pub mod conf;
+mod lml;
 pub mod lulu;
 mod ops;
 mod package_manager;
-mod resolver;
 mod project;
+mod resolver;
 mod util;
 
 macro_rules! into_exec_command {
-  ($lua:expr, (), $cmd:expr $(, $arg:expr)*) => {{
+  ($lua:expr, $env:expr, (), $cmd:expr $(, $arg:expr)*) => {{
+    let env_ref = $env.clone();
     $lua.create_function(move |_, ()| {
       let mut cmd = std::process::Command::new(std::env::current_exe()?);
       cmd.arg($cmd);
       $(
         cmd.arg($arg);
       )*
+      let map = env_ref.lock().unwrap();
+      for (k, v) in map.iter() {
+        cmd.env(k, v);
+      }
       cmd.status()?;
       Ok(())
     })?
   }};
 
-  ($lua:expr, ($($arg_name:ident : $arg_type:ty),+), $cmd:expr $(, $arg:expr)*) => {{
+  ($lua:expr, $env:expr, ($($arg_name:ident : $arg_type:ty),+), $cmd:expr $(, $arg:expr)*) => {{
+    let env_ref = $env.clone();
     #[allow(unused_parens)]
     $lua.create_function(move |_, ($($arg_name),+): ($($arg_type),+)| {
       let mut cmd = std::process::Command::new(std::env::current_exe()?);
@@ -42,6 +51,10 @@ macro_rules! into_exec_command {
       $(
         cmd.arg($arg);
       )*
+      let map = env_ref.lock().unwrap();
+      for (k, v) in map.iter() {
+        cmd.env(k, v);
+      }
       cmd.status()?;
       Ok(())
     })?
@@ -80,49 +93,19 @@ async fn main() -> Result<()> {
         );
         Ok(())
       }
+      Commands::Test { file, test, args } => {
+        let mut lulu = Lulu::new(
+          Some(args.clone()),
+          Some(file.parent().unwrap().to_path_buf()),
+        );
+        lulu.compiler.env = "test".to_string();
+        lulu.compiler.current_test = test.clone();
+        do_error!(lulu.exec_entry_mod_path(file.clone()));
+        Ok(())
+      }
       Commands::Bundle { file, output } => {
         let mut lulu = Lulu::new(None, None);
-
-        lulu.entry_mod_path(file.clone())?;
-
-        let mut combined_bytes = HashMap::<String, LuLib>::new();
-
-        for lmod in &lulu.mods {
-          let conf = if let Some(conf) = lmod.conf.clone() {
-            let conft = conf_to_string(&conf)?;
-            Some(lua_to_bytecode(&lulu.lua, conft.as_str())?)
-          } else {
-            None
-          };
-          match &lmod.source {
-            LuluModSource::Code(code) => {
-              combined_bytes.insert(
-                lmod.name.clone(),
-                LuLib {
-                  bytes: lua_to_bytecode(&lulu.lua, compiler::compile(code).as_str())?,
-                  conf,
-                },
-              );
-            }
-            LuluModSource::Bytecode(bytes) => {
-              combined_bytes.insert(
-                lmod.name.clone(),
-                LuLib {
-                  bytes: bytes.clone(),
-                  conf,
-                },
-              );
-            }
-          }
-        }
-
-        if output.extension().and_then(|s| s.to_str()) == Some("lulib") {
-          let mut f = File::create(output)?;
-          write_bundle(&mut f, combined_bytes)?;
-        } else {
-          make_bin(output, combined_bytes)?;
-        }
-        Ok(())
+        bundle_lulu_or_exec(&mut lulu, file.clone(), output.clone())
       }
       Commands::Resolve { item } => {
         let pkg_manager = PackageManager::new().map_err(|e| mlua::Error::external(e))?;
@@ -184,23 +167,79 @@ async fn main() -> Result<()> {
             .unwrap_or(lua.create_table()?)
             .get::<String>("name")?;
 
+          let env = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+          let lulu_arc = Arc::new(Mutex::new(Lulu::new(None, None)));
+
+          let env_ref = env.clone();
+          lua.globals().set(
+            "set_env",
+            lua.create_function(move |_, (name, value): (String, String)| {
+              let mut map = env_ref.lock().unwrap();
+              map.insert(name, value);
+              Ok(())
+            })?,
+          )?;
+
           let bundle_path = path.clone();
-          let bundle = into_exec_command!(lua, (file: String, output: String), "bundle", bundle_path.clone().join(file), bundle_path.join(output));
+          let bundle = into_exec_command!(lua, env, (file: String, output: String), "bundle", bundle_path.clone().join(file), bundle_path.join(output));
+
+          // let bname = name.clone();
+          // let bundle_main_path = path.clone();
+          // let bundle_main_path = path.clone();
+          // lua.globals().set("bundle", lua.create_function(move |_, file: String| {
+          //     bundle_lulu_or_exec(&mut lulu, bundle_main_path.join(file).to_path_buf(), Path::new(&format!(".lib/{}.lulib", name.clone())).to_path_buf())
+          //   })?)?;
+          // let bundle_main_entry = into_exec_command!(lua, env, (file: String), "bundle", bundle_main_path.clone().join(file), bundle_main_path.join(format!(".lib/{}.lulib", bname.clone())));
+
+          // let name = name.clone();
+          // let bundle_main_path = path.clone();
+          // let bundle_main_entry_exec = into_exec_command!(lua, env, (file: String), "bundle", bundle_main_path.clone().join(file), bundle_main_path.join(format!(".lib/{}", name.clone())));
+
+          let ipath = path.clone();
+          let larc = lulu_arc.clone();
+          lua.globals().set(
+            "include_bytes",
+            lua.create_function(move |_, (name, file): (String, String)| {
+              let file_path = ipath.join(file);
+              let bytes = std::fs::read(file_path)?;
+              let mut lulu = larc.lock().unwrap();
+              lulu.add_mod_from_bytecode(format!("bytes://{}", name), bytes, None);
+              Ok(())
+            })?,
+          )?;
 
           let bname = name.clone();
           let bundle_main_path = path.clone();
-          let bundle_main_entry = into_exec_command!(lua, (file: String), "bundle", bundle_main_path.clone().join(file), bundle_main_path.join(format!(".lib/{}.lulib", bname.clone())));
-
-          let name = name.clone();
-          let bundle_main_path = path.clone();
-          let bundle_main_entry_exec = into_exec_command!(lua, (file: String), "bundle", bundle_main_path.clone().join(file), bundle_main_path.join(format!(".lib/{}", name.clone())));
+          let larc = lulu_arc.clone();
+          lua.globals().set(
+            "bundle_main",
+            lua.create_function(move |_, (file, lulib): (String, Option<bool>)| {
+              let is_lulib = if let Some(lulib) = lulib {
+                lulib
+              } else {
+                false
+              };
+              let mut lulu = larc.lock().unwrap();
+              bundle_lulu_or_exec(
+                &mut lulu,
+                bundle_main_path.join(file).to_path_buf(),
+                Path::new(&format!(
+                  ".lib/{}{}",
+                  bname.clone(),
+                  if is_lulib { ".lulib" } else { "" }
+                ))
+                .to_path_buf(),
+              )
+            })?,
+          )?;
 
           let build_path = path.clone();
           let build =
-            into_exec_command!(lua, (file: String), "build", build_path.clone().join(file));
+            into_exec_command!(lua, env, (file: String), "build", build_path.clone().join(file));
 
           let resolve_path = path.clone();
-          let resolve_dependencies = into_exec_command!(lua, (), "resolve", resolve_path.clone());
+          let resolve_dependencies =
+            into_exec_command!(lua, env, (), "resolve", resolve_path.clone());
 
           let exists_path = path.clone();
           let exists_func =
@@ -211,10 +250,10 @@ async fn main() -> Result<()> {
             .set("resolve_dependencies", resolve_dependencies)?;
 
           lua.globals().set("bundle", bundle)?;
-          lua.globals().set("bundle_main", bundle_main_entry)?;
-          lua
-            .globals()
-            .set("bundle_main_exec", bundle_main_entry_exec)?;
+          // lua.globals().set("bundle_main", bundle_main_entry)?;
+          // lua
+          //   .globals()
+          //   .set("bundle_main_exec", bundle_main_entry_exec)?;
           lua.globals().set("build", build)?;
           lua.globals().set("exists", exists_func)?;
 

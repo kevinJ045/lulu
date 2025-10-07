@@ -1,4 +1,4 @@
-use crate::compiler::{Compiler};
+use crate::compiler::Compiler;
 use crate::conf::{LuluConf, find_lulu_conf, load_lulu_conf};
 use crate::ops;
 use mlua::{Lua, chunk};
@@ -29,25 +29,49 @@ pub struct Lulu {
   pub lua: Lua,
   pub args: Vec<String>,
   pub current: Option<PathBuf>,
-  pub compiler: Compiler
+  pub compiler: Compiler,
 }
 
 impl Lulu {
   pub fn new(args: Option<Vec<String>>, current: Option<PathBuf>) -> Lulu {
     let mods = Vec::new();
     let lua = unsafe { Lua::unsafe_new() };
-    let compiler: Compiler = Compiler::new();
 
-    return Lulu {
+    Lulu {
       mods,
       lua,
       args: args.unwrap_or_default(),
       current,
-      compiler
-    };
+      compiler: Compiler::new(None),
+    }
   }
 
-  pub fn preload_mods(&self) -> mlua::Result<()> {
+  pub fn preload_mods(&mut self) -> mlua::Result<()> {
+
+    let items = self.compiler.importmap.clone();
+
+    for (name, (path_to_import, path_from, conf)) in &items {
+      let path_from = if let Some(p) = path_from {
+        p.clone()
+      } else {
+        "".to_string()
+      };
+      if path_from.is_empty() {
+        continue;
+      }
+      let parent = std::path::Path::new(&path_from).parent().unwrap();
+      let file_path = parent.join(path_to_import);
+
+      if !file_path.exists() {
+        panic!(
+          "File \"{:?}\" does not exist. Imported from: \"{}\"",
+          file_path, path_from
+        );
+      }
+
+      self.add_mod_from_file(name.to_string(), file_path, conf.clone())?;
+    }
+
     ops::register_ops(&self.lua, self)?;
 
     self
@@ -156,7 +180,7 @@ impl Lulu {
   pub fn add_mod_from_code(&mut self, name: String, code: String, conf: Option<LuluConf>) {
     self.add_mod(LuluMod {
       name,
-      source: LuluModSource::Code(self.compiler.clone().compile(code.as_str())),
+      source: LuluModSource::Code(self.compiler.clone().compile(code.as_str(), None, None)),
       conf,
     });
   }
@@ -178,11 +202,22 @@ impl Lulu {
     let raw = std::fs::read(&path)?;
 
     let source = match std::str::from_utf8(&raw) {
-      Ok(code) => LuluModSource::Code(self.compiler.compile(code)),
+      Ok(code) => LuluModSource::Code(self.compiler.compile(
+        code,
+        Some(std::fs::canonicalize(path)?.to_string_lossy().to_string()),
+        conf.clone(),
+      )),
       Err(_) => LuluModSource::Bytecode(raw),
     };
 
-    self.add_mod(LuluMod { name, source, conf });
+    let modname = if let Some(n) = self.compiler.last_mod.clone() {
+      self.compiler.last_mod = None;
+      n
+    } else {
+      name.clone()
+    };
+
+    self.add_mod(LuluMod { name: modname, source, conf });
     Ok(())
   }
 
@@ -193,11 +228,11 @@ impl Lulu {
       .find(|m| m.name == name)
       .ok_or_else(|| mlua::Error::RuntimeError(format!("Module {} not found", name)))?;
 
-
     let chunk = match &lmod.source {
       LuluModSource::Code(code) => self.lua.load(code),
       LuluModSource::Bytecode(bytes) => self.lua.load(&bytes[..]),
-    }.set_name(name);
+    }
+    .set_name(name);
 
     let env = if let Some(env) = chunk.environment() {
       env.clone()
@@ -298,14 +333,19 @@ impl Lulu {
       }
 
       if let Some(macros) = c.macros.clone() {
-        self.compiler.compile(&macros);
+        self.compiler.compile(&macros, None, None);
       }
-      
+
       if let Some(include) = c.include.clone() {
         for libpath in include {
-          let lib_path = root_path.parent().unwrap().join(if libpath.starts_with("@") {
-            format!(".lib/lulib/{}.lulib", libpath[1..].to_string())
-          } else { libpath });
+          let lib_path = root_path
+            .parent()
+            .unwrap()
+            .join(if libpath.starts_with("@") {
+              format!(".lib/lulib/{}.lulib", libpath[1..].to_string())
+            } else {
+              libpath
+            });
           let mods = crate::bundle::load_lulib(&lib_path)?;
           crate::bundle::reg_bundle_nods(self, mods)?;
         }
@@ -329,7 +369,7 @@ impl Lulu {
       .iter()
       .find(|m| m.name.ends_with("main"))
       .ok_or_else(|| mlua::Error::RuntimeError(format!("No main was found")))?;
-    
+
     Ok(lmod.name.clone())
   }
 

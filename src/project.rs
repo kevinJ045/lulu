@@ -66,7 +66,7 @@ fn create_lulu_conf(
   }
 
   content.push_str(
-    format!("\nbuild = function()\n  resolve_dependencies()\n  {}(\"{}\")\n  print('Built binary to \".lib\" folder.')\nend\n", if is_lib { "bundle_main" } else { "bundle_main_exec" }, main_file).as_str()
+    format!("\nbuild = function()\n  resolve_dependencies()\n  bundle_main(\"{}\", {})\n  print('Built binary to \".lib\" folder.')\nend\n", main_file, is_lib).as_str()
   );
 
   let app_yaml_path = path.join("lulu.conf.lua");

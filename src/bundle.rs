@@ -1,5 +1,6 @@
-use crate::conf::load_lulu_conf_from_bytecode;
-use crate::lulu::{LuLib, Lulu};
+use crate::conf::{conf_to_string, load_lulu_conf_from_bytecode};
+use crate::lulu::{LuLib, Lulu, LuluModSource};
+use crate::util::lua_to_bytecode;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -165,9 +166,9 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
       let conf = load_lulu_conf_from_bytecode(&lulu.lua, confbytes)?;
 
       if let Some(macros) = conf.macros.clone() {
-        lulu.compiler.compile(&macros);
+        lulu.compiler.compile(&macros, None, None);
       }
-      
+
       Some(conf)
     } else {
       None
@@ -178,7 +179,11 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
   Ok(())
 }
 
-pub fn run_bundle(mods: HashMap<String, LuLib>, args: Vec<String>, current: Option<PathBuf>) -> mlua::Result<()> {
+pub fn run_bundle(
+  mods: HashMap<String, LuLib>,
+  args: Vec<String>,
+  current: Option<PathBuf>,
+) -> mlua::Result<()> {
   let mut lulu = Lulu::new(Some(args), current);
 
   reg_bundle_nods(&mut lulu, mods)?;
@@ -187,5 +192,49 @@ pub fn run_bundle(mods: HashMap<String, LuLib>, args: Vec<String>, current: Opti
 
   let main_name = lulu.find_main()?;
   lulu.exec_mod(main_name.as_str())?;
+  Ok(())
+}
+
+pub fn bundle_lulu_or_exec(lulu: &mut Lulu, file: PathBuf, output: PathBuf) -> mlua::Result<()> {
+  lulu.entry_mod_path(file.clone())?;
+
+  let mut combined_bytes = HashMap::<String, LuLib>::new();
+
+  for lmod in &lulu.mods {
+    let conf = if let Some(conf) = lmod.conf.clone() {
+      let conft = conf_to_string(&conf)?;
+      Some(lua_to_bytecode(&lulu.lua, conft.as_str())?)
+    } else {
+      None
+    };
+    match &lmod.source {
+      LuluModSource::Code(code) => {
+        combined_bytes.insert(
+          lmod.name.clone(),
+          LuLib {
+            bytes: lua_to_bytecode(&lulu.lua, code.as_str())?,
+            conf,
+          },
+        );
+      }
+      LuluModSource::Bytecode(bytes) => {
+        combined_bytes.insert(
+          lmod.name.clone(),
+          LuLib {
+            bytes: bytes.clone(),
+            conf,
+          },
+        );
+      }
+    }
+  }
+
+  if output.extension().and_then(|s| s.to_str()) == Some("lulib") {
+    let mut f = File::create(output)?;
+    write_bundle(&mut f, combined_bytes)?;
+  } else {
+    make_bin(&output, combined_bytes)?;
+  }
+
   Ok(())
 }
