@@ -70,6 +70,14 @@ impl MacroRegistry {
         body: tokenize("into(nil)"),
       },
     );
+    macros.insert(
+      "include_bytes".to_string(),
+      MacroDefinition {
+        name: "include_bytes".to_string(),
+        params: vec!["name".to_string(), "expr".to_string()],
+        body: tokenize("local $name = bytes_from($expr)"),
+      },
+    );
 
     MacroRegistry { macros }
   }
@@ -742,6 +750,17 @@ impl Compiler {
         .importmap
         .insert(name.clone(), (cpath.clone(), path.clone(), conf.clone()));
       cargs[1] = vec![Token::String(format!("{}", name), 0)];
+      self.substitute_macro_params(&macro_def.body, &macro_def.params, &cargs)
+    } else if macro_name == "include_bytes" {
+      let mut cargs = args.clone();
+      let vname = get_token_string(&args[0][0]).unwrap();
+      let name = format!("bytes://{}", vname);
+      let cpath = get_token_string(&args[1][0]).unwrap();
+
+      self
+        .importmap
+        .insert(name.clone(), (cpath.clone(), path.clone(), conf.clone()));
+      cargs[1] = vec![Token::String(format!("{}", vname), 0)];
       self.substitute_macro_params(&macro_def.body, &macro_def.params, &cargs)
     } else if macro_name == "package" {
       let name = get_token_string(&args[0][0]).unwrap();

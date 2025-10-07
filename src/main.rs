@@ -1,14 +1,11 @@
-use crate::bundle::{bundle_lulu_or_exec, load_lulib, make_bin, run_bundle, write_bundle};
+use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle};
 use crate::cli::{CacheCommand, Cli, Commands};
-use crate::conf::conf_to_string;
-use crate::lulu::{LuLib, Lulu, LuluModSource};
+use crate::lulu::{Lulu};
 use crate::package_manager::PackageManager;
-use crate::util::lua_to_bytecode;
 use clap::Parser;
 use mlua::Result;
 use mlua::prelude::LuaError;
 use std::collections::HashMap;
-use std::fs::File;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 

@@ -1,4 +1,4 @@
-use crate::lulu::Lulu;
+use crate::lulu::{Lulu, LuluModSource};
 use mlua::Lua;
 use mlua::prelude::LuaError;
 use regex::Regex;
@@ -115,6 +115,24 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     }
   })?;
 
+  let bytes_from_mods = {
+    let lulu_rc = lulu.clone();
+    lua.create_function(move |_, name: String| {
+      let lulu = &lulu_rc;
+      if let Some(module) = lulu.mods.iter().find(|m| m.name == format!("bytes://{}", name)) {
+        match &module.source {
+          LuluModSource::Bytecode(bytes) => Ok(bytes.clone()),
+          LuluModSource::Code(code) => Ok(code.as_bytes().to_vec()),
+        }
+      } else {
+        Err(mlua::Error::RuntimeError(format!(
+          "Module '{}' not found",
+          name
+        )))
+      }
+    })
+  }?;
+
   let sleep_fn = lua.create_async_function({
     async move |_, secs: u64| -> mlua::Result<()> {
       time::sleep(time::Duration::from_secs(secs)).await;
@@ -124,7 +142,8 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   })?;
   lua.globals().set("sleep", sleep_fn)?;
 
-  lua.globals().set("get_mods", gmods)?;
+  lua.globals().set("__get_mods__", gmods)?;
+  lua.globals().set("bytes_from", bytes_from_mods)?;
   lua.globals().set("exec_mod", execmod)?;
   lua.globals().set("argv", lulu.args.clone())?;
 

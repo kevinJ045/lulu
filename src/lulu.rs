@@ -69,7 +69,12 @@ impl Lulu {
         );
       }
 
-      self.add_mod_from_file(name.to_string(), file_path, conf.clone())?;
+      if name.starts_with("bytes://") {
+        let bytecode = std::fs::read(file_path)?;
+        self.add_mod_from_bytecode(name.to_string(), bytecode, None);
+      } else {
+        self.add_mod_from_file(name.to_string(), file_path, conf.clone())?;
+      }
     }
 
     ops::register_ops(&self.lua, self)?;
@@ -78,7 +83,7 @@ impl Lulu {
       .lua
       .load(
         r#"
-          local embedded = get_mods()
+          local embedded = __get_mods__()
           package.preload = package.preload or {}
           require_native = require
           for key, name in pairs(embedded) do
