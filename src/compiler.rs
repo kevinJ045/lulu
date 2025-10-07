@@ -451,7 +451,7 @@ fn find_braces(s: &str) -> Vec<(usize, usize)> {
 #[derive(Debug, Clone)]
 pub struct Compiler {
   macros: MacroRegistry,
-  defs: HashMap<String, String>,
+  pub defs: HashMap<String, String>,
   pub importmap: HashMap<String, (String, Option<String>, Option<LuluConf>)>,
   pub import: Option<fn(String, String, Option<String>, Option<LuluConf>)>,
   pub last_mod: Option<String>,

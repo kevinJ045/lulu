@@ -207,6 +207,16 @@ async fn main() -> Result<()> {
               Ok(())
             })?,
           )?;
+          
+          let larc = lulu_arc.clone();
+          lua.globals().set(
+            "set_cfg_env",
+            lua.create_function(move |_, (key, value): (String, String)| {
+              let mut lulu = larc.lock().unwrap();
+              lulu.compiler.defs.insert(key, value);
+              Ok(())
+            })?,
+          )?;
 
           let bname = name.clone();
           let bundle_main_path = path.clone();
