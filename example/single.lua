@@ -1,6 +1,12 @@
 
 local items = range(0, 10, 5)
 
+using(function(env)
+  env.ss = "sss"
+end)
+
+print(ss)
+
 function lml_create(name, props, ...)
   return {
     name = name,
@@ -62,6 +68,30 @@ iprint(lml! {
     }
   </table>
 })
+
+
+local m = "sss"
+
+print(match! m, {
+  "ssss" {
+    return "IT IS SSS"
+  }
+  "not ss" {
+    return "meh"
+  }
+  (val == "sss") {
+    return "IT is sss"
+  }
+})
+
+match! 1, {
+  10 {
+    print("IT IS SSS")
+  }
+  _ {
+    print("meh")
+  }
+}
 
 for_each! item, items, {
   cfg! OS, {

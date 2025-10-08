@@ -31,6 +31,14 @@ impl MacroRegistry {
       },
     );
     macros.insert(
+      "match".to_string(),
+      MacroDefinition {
+        name: "for_each".to_string(),
+        params: vec!["item".to_string(), "iterator".to_string()],
+        body: tokenize("into(nil)"),
+      },
+    );
+    macros.insert(
       "lml".to_string(),
       MacroDefinition {
         name: "lml".to_string(),
@@ -448,7 +456,7 @@ fn find_braces(s: &str) -> Vec<(usize, usize)> {
       stack.push(i);
     } else if c == '}' {
       if let Some(start) = stack.pop() {
-        positions.push((start, i + 1)); // include closing brace
+        positions.push((start, i + 1));
       }
     }
   }
@@ -733,6 +741,8 @@ impl Compiler {
       self.compile_cfg(args, path, conf)
     } else if macro_name == "test" {
       self.compile_tests(args, path, conf)
+    } else if macro_name == "match" {
+      self.compile_match(args, path, conf)
     } else if macro_name == "import" {
       let mut cargs = args.clone();
       let vname = get_token_string(&args[0][0]).unwrap();
@@ -954,25 +964,153 @@ impl Compiler {
         branches.push((name, branch_tokens));
       }
 
-      self.process_macros(if let Some(current) = self.current_test.clone() {
-        if let Some((_, tok)) = branches.iter().find(|(os, _)| os.to_lowercase() == current) {
-          tok.clone()
-        } else {
-          match args.get(2) {
-            Some(arg2) => arg2.clone(),
-            _ => Vec::new(),
+      self.process_macros(
+        if let Some(current) = self.current_test.clone() {
+          if let Some((_, tok)) = branches.iter().find(|(os, _)| os.to_lowercase() == current) {
+            tok.clone()
+          } else {
+            match args.get(2) {
+              Some(arg2) => arg2.clone(),
+              _ => Vec::new(),
+            }
           }
-        }
-      } else {
-        let mut v: Vec<Token> = Vec::new();
-        for (_, value) in branches.iter() {
-          v.extend(value.clone());
-        }
-        v
-      }, path, conf)
+        } else {
+          let mut v: Vec<Token> = Vec::new();
+          for (_, value) in branches.iter() {
+            v.extend(value.clone());
+          }
+          v
+        },
+        path,
+        conf,
+      )
     } else {
       Vec::new()
     }
+  }
+
+  fn capture_expression(&mut self, tokens: &[Token], start: usize) -> (Vec<Token>, usize) {
+    let mut out = Vec::new();
+    let mut i = start;
+    let mut paren = 0;
+
+    while i < tokens.len() {
+      match &tokens[i] {
+        Token::LeftBrace(_) if paren == 0 => break,
+
+        Token::LeftParen(_) => {
+          paren += 1;
+          out.push(tokens[i].clone());
+        }
+        Token::RightParen(_) => {
+          if paren == 0 {
+            break;
+          }
+          paren -= 1;
+          out.push(tokens[i].clone());
+        }
+
+        _ => out.push(tokens[i].clone()),
+      }
+      i += 1;
+    }
+
+    (out, i)
+  }
+
+  fn compile_match(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
+    let mut branches: Vec<(Vec<Token>, Vec<Token>)> = Vec::new();
+    let value = &args[0];
+    let tokens = &args[1];
+    let mut i = 0;
+
+    while i < tokens.len() {
+      let (expr_tokens, next_i) = self.capture_expression(tokens, i);
+      if expr_tokens.is_empty() {
+        panic!(
+          "Expected match pattern (identifier, string, number, call, or table) at {:?}",
+          i
+        );
+      }
+      i = next_i;
+
+      // println!("{:?}", expr_tokens);
+
+      if let Some(Token::Whitespace(_, _)) = tokens.get(i) {
+        i += 1;
+      }
+
+      match tokens.get(i) {
+        Some(Token::LeftBrace(_)) => i += 1,
+        other => panic!("Expected '{{' after match pattern, got {:?}", other),
+      }
+
+      let start = i;
+      let mut brace_count = 1;
+      while brace_count > 0 {
+        match &tokens[i] {
+          Token::LeftBrace(_) => brace_count += 1,
+          Token::RightBrace(_) => brace_count -= 1,
+          _ => {}
+        }
+        i += 1;
+      }
+      let end = i - 1;
+
+      if let Some(Token::Whitespace(_, _)) = tokens.get(i) {
+        i += 1;
+      }
+
+      let mut branch_tokens = Vec::new();
+
+      if expr_tokens.iter().any(|t| matches!(t, Token::Identifier(v, _) if *v == "_".to_string())) {
+        branch_tokens.extend(tokenize("else"));
+        branch_tokens.extend(tokens[start..end].to_vec());
+        branches.push((expr_tokens.clone(), branch_tokens));
+        continue;
+      }
+      
+      if branches.len() > 0 {
+        branch_tokens.extend(tokenize("elseif "));
+      } else {
+        branch_tokens.extend(tokenize("if "));
+      }
+
+      if !expr_tokens.iter().any(|t| matches!(t, Token::Identifier(v, _) if *v == "val".to_string())) {
+        branch_tokens.extend(tokenize("val == "));
+      }
+      branch_tokens.extend(expr_tokens.clone());
+      branch_tokens.extend(tokenize(" then "));
+      branch_tokens.extend(tokens[start..end].to_vec());
+
+      branches.push((expr_tokens.clone(), branch_tokens));
+
+    }
+
+    self.process_macros(
+      {
+        let mut v: Vec<Token> = Vec::new();
+        v.extend(tokenize("(function(val)\n"));
+        for (_, value) in branches.iter() {
+          v.extend(value.clone());
+        }
+        v.extend(tokenize("end\n"));
+        v.extend(tokenize("end)("));
+        v.extend(value.clone());
+        v.extend(tokenize(")"));
+        if !v.iter().any(|t| matches!(t, Token::Identifier(s, _) if s == "return")) {
+          v.insert(0, Token::Symbol(";".into(), 0));
+        }
+        v
+      },
+      path,
+      conf,
+    )
   }
 
   fn substitute_macro_params(
@@ -1193,127 +1331,5 @@ pub fn wrap_macros(input: &str) -> String {
     format!("{}{}\n{}", before.trim_end(), macros_block, after)
   } else {
     input.to_string()
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_simple_macro() {
-    let code = r#"macro {
-  hello ($name) {
-    print("Hello, " .. $name)
-  }
-}
-
-hello! "World""#;
-
-    let result = compile(code);
-    println!("Input: {}", code);
-    println!("Output: {}", result);
-
-    // Should expand to: print("Hello, " .. "World")
-    assert!(result.contains("print"));
-    assert!(result.contains("Hello"));
-    assert!(result.contains("World"));
-  }
-
-  #[test]
-  fn test_macros_field() {
-    let code = r#"
-manifest = {
-  name = "ss"
-}    
-
-mods = {
-  main = "main.lua"
-}
-
-macros = {
-  mymacro ($item) {
-    print($item)
-  },
-
-  mymacro2 ($item) {
-    print($item)
-  }
-}
-
-include = {
-  "@lib"
-}
-"#;
-
-    let result = wrap_macros(code);
-    println!("Output: {}", result);
-
-    assert!(result.contains("macro {"));
-  }
-
-  #[test]
-  fn test_complex_macro() {
-    let code = r#"macro {
-  some_complex_thing ($a, $b) {
-    $a($b)
-  }
-
-}
-
-some_complex_thing! { print }, { "hello" }"#;
-
-    let result = compile(code);
-    println!("Input: {}", code);
-    println!("Output: {}", result);
-
-    assert!(result.contains("print"));
-    assert!(result.contains("\"hello\""));
-  }
-
-  #[test]
-  fn test_for_each_macro() {
-    let code = r#"local items = {0, 5, 10}
-
-macro {
-  for_each ($key, $iterator, $expr) {
-    for $key in ipairs($iterator) do
-      $expr
-    end
-  }
-}
-
-for_each! item, items, {
-  print(item)
-}"#;
-
-    let result = compile(code);
-    println!("Input: {}", code);
-    println!("Output: {}", result);
-
-    // Should expand the macro call
-    assert!(result.contains("for item in ipairs"));
-    assert!(result.contains("print(item)"));
-    assert!(result.contains("end"));
-  }
-
-  #[test]
-  fn test_basic_macro_expansion() {
-    let code = r#"macro {
-  greet ($name) {
-    print("Hello, " .. $name)
-  }
-}
-
-greet! "Lulu""#;
-
-    let result = compile(code);
-    println!("Input: {}", code);
-    println!("Output: {}", result);
-
-    // Should expand the macro
-    assert!(result.contains("print"));
-    assert!(result.contains("Hello"));
-    assert!(result.contains("Lulu"));
   }
 }

@@ -282,7 +282,6 @@ impl Lulu {
     } else {
       env.set("current_path", mlua::Value::Nil)?;
     }
-
     let current = self.current.clone();
     let lookup_dylib = self.lua.create_function(move |_, name: String| {
       let path = std::fs::canonicalize(current.clone().unwrap_or(PathBuf::from(".")))?;
@@ -299,6 +298,14 @@ impl Lulu {
     })?;
 
     env.set("lookup_dylib", lookup_dylib)?;
+
+
+    let using = self.lua.load(chunk! {
+      local args = { ... }
+      args[1](getfenv(1))
+    }).set_environment(env.clone()).into_function()?;
+
+    env.set("using", using)?;
 
     let chunk = chunk.set_environment(env);
 
