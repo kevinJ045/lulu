@@ -39,9 +39,6 @@ pub enum Commands {
   Compile {
     #[arg(name = "FILE")]
     file: PathBuf,
-
-    #[arg(name = "OUTPUT_FILE")]
-    output: PathBuf,
   },
   New {
     #[arg(name = "NAME")]

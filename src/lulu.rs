@@ -391,4 +391,19 @@ impl Lulu {
 
     Ok(())
   }
+
+  pub fn compile(&mut self, path: PathBuf) -> mlua::Result<String> {
+    let mainname = self.entry_mod_path(path)?;
+
+    let lmod = self
+      .mods
+      .iter()
+      .find(|m| m.name == mainname)
+      .ok_or_else(|| mlua::Error::RuntimeError(format!("Such module was not found")))?;
+
+    match lmod.source.clone() {
+      LuluModSource::Code(code) => Ok(code),
+     _ => Err(mlua::Error::DeserializeError("Module string was not found".to_string()))
+    }
+  }
 }

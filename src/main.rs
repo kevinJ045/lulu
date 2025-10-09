@@ -1,6 +1,6 @@
 use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle};
 use crate::cli::{CacheCommand, Cli, Commands};
-use crate::lulu::{Lulu};
+use crate::lulu::Lulu;
 use crate::package_manager::PackageManager;
 use clap::Parser;
 use mlua::Result;
@@ -88,6 +88,15 @@ async fn main() -> Result<()> {
             lulu.exec_entry_mod_path(file.clone())
           }
         );
+        Ok(())
+      }
+      Commands::Compile { file } => {
+        let path = std::fs::canonicalize(file)?;
+        let mut lulu = Lulu::new(
+          None,
+          Some(path.clone().parent().unwrap().to_path_buf()),
+        );
+        println!("{}", lulu.compile(path.clone())?);
         Ok(())
       }
       Commands::Test { file, test, args } => {
@@ -204,7 +213,7 @@ async fn main() -> Result<()> {
               Ok(())
             })?,
           )?;
-          
+
           let larc = lulu_arc.clone();
           lua.globals().set(
             "set_cfg_env",
@@ -268,7 +277,6 @@ async fn main() -> Result<()> {
         }
         Ok(())
       }
-      Commands::Compile { file: _, output: _ } => Ok(()),
       Commands::Update { packages, project } => {
         let pkg_manager = PackageManager::new().map_err(|e| {
           eprintln!("Failed to initialize package manager: {}", e);
