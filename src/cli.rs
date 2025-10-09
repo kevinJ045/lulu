@@ -2,9 +2,9 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "rew")]
+#[command(name = "lulu")]
 #[command(version = env!("CARGO_PKG_VERSION"),)]
-#[command(about = "A Rust-based Rew runtime using deno_core")]
+#[command(about = "A Simple lua runtime written in rust")]
 pub struct Cli {
   #[command(subcommand)]
   pub command: Commands,
