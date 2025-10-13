@@ -66,7 +66,7 @@ lulu new -gi project-name
 ```
 
 ## The lulu config
-The lulu config or `lulu.conf.lua` is the everything for your project, it tells lulu everything about your project. For example, how to build it, what dependencies it has, and even what files to select to bundle.
+The lulu config or `lulu.conf.lua` is the entry for your project, it tells lulu everything about your project. For example, how to build it, what dependencies it has, and even what files to select to bundle.
 
 ### Manifest
 The `manifest` field is required, and should hold at least the name of the project.
@@ -91,10 +91,11 @@ mods = {
   utils = "src/utils.lua"
 }
 ```
-You cannot have duplicate names for modules in the same project.
 
 #### Modules names.
-Names like `main` and `init` are required, `main` is required as the only entry to run or kickstart the bundle *therefore the can only be one `main`*, however, `init` is the namespaced init module
+Names like `main` and `init` are required, `main` is required as the only entry to run or kickstart the bundle *therefore the can only be one `main`*, however, `init` is a namcepaced entry module into libraries. 
+
+- **Note**: You cannot have duplicate names for modules in the same project.
 
 ### Fetch field
 The `fetch` field tells lulu, when loaded from github, that this github repository is a library and it has something to fetch.
@@ -143,6 +144,11 @@ dependencies = {
    - `.lulib` files go to `.lib/lulib/`
    - Dynamic libraries go to `.lib/dylib/` (platform-specific: `.so`, `.dll`, `.dylib`)
 
+#### For Other Sources (URLs, Archives)
+1. **Fetch**: Downloads or extracts the package to a cache directory using a SHA-256 hash of the URL
+2. **Build**: Executes the package's build process in the cache directory (if it has a `lulu.conf.lua`)
+3. **Copy**: Copies built artifacts to your project
+
 #### Cache Directory Structure
 ```
 ~/.cache/lulu/  (or %APPDATA%/lulu on Windows)
@@ -158,13 +164,16 @@ dependencies = {
     └── ...
 ```
 
-#### For Other Sources (URLs, Archives)
-1. **Fetch**: Downloads or extracts the package to a cache directory using a SHA-256 hash of the URL
-2. **Build**: Executes the package's build process in the cache directory (if it has a `lulu.conf.lua`)
-3. **Copy**: Copies built artifacts to your project
+#### Cache management
+You can manage cache with `lulu cache` subcommand.
+```bash
+lulu cache list
+lulu cache remove abc123def456
+lulu cache clear
+```
 
 ### Include
-The `include` field tells lulu to include the specified `.lulib`s in your bundle. Which is the only way to include libraries included through [`dependencies`](#dependencies).
+The `include` field tells lulu to include the specified `.lulib`s in your bundle. Which is the only way to include libraries resolved through [`dependencies`](#dependencies).
 
 **Example**: 
 ```lua
@@ -199,9 +208,11 @@ build = function()
   if not exists(".lib/lulib/some-library.lulib") then
     resolve_dependencies()
 
-    -- or manually build sub-projects and alike:
-    build("path/to/main.lua", "path/to/output.lulib")
-    build("path/to/main.lua", "path/to/output-exec")
+    -- automatically build sub-projects and alike:
+    build("path/to/project")
+    -- or manually bundle sub-projects and alike:
+    bundle("path/to/main.lua", "path/to/output.lulib")
+    bundle("path/to/main.lua", "path/to/output-exec")
   end
 
   -- including bytes into the buffer
@@ -215,12 +226,16 @@ build = function()
   -- more funtions coming soon
 end
 ```
-
-#### You can also build with cli as:
+#### Building with CLI
 ```bash
-lulu build ./main.lua path/to/exec
+lulu build .
+```
+
+#### You can also bundle with cli as:
+```bash
+lulu bundle ./main.lua path/to/exec
 # or
-lulu build ./init.lua path/to/lib.lulib # the .lulib is important
+lulu bundle ./init.lua path/to/lib.lulib # the .lulib is important
 ```
 
 ## Require
@@ -322,6 +337,7 @@ cfg! set, {
 
 ### `match!` 
 > Generating Macro
+
 The `match!` macro let's you do a quick `switch` statement. But it also let's you check values in however condition you want.
 
 ```lua
@@ -357,6 +373,7 @@ local some_dynamic_value = match! value, {
 
 ### `for_each!`
 > Generating Macro
+
 This is a simple macro i made as a test, it basically let's you do for loops but with less code:
 ```lua
 for_each! item, items, {
@@ -370,6 +387,7 @@ end
 
 ### `lml!`
 > Generating Macro
+
 Basically introduces `JSX` into lua, but remember it might have issues, it's still experimental. *This will require you to have a function called `lml_create`.
 ```lua
 my_button = lml! {
@@ -386,6 +404,7 @@ This macro rewrites the whole block into valid lua code(or at least should).
 
 ### `import!`
 > Transforming Macro
+
 This macro lets you add files into the bundle tree at compile time, basically eliminating the need for the [`mods` field](#modules) in your `lulu.conf.lua`.
 
 ```lua
@@ -398,6 +417,7 @@ local smn = require("src-something")
 
 ### `include_bytes!`
 > Transforming Macro
+
 This macro is basically like the `import!` macro, but instead it import files into bytes.
 
 ```lua
@@ -407,9 +427,12 @@ print(text_bytes) -- will be the text's bytes
 
 ### `test!`
 > Transforming Macro
+
 This macro is special. More about it at [testing](#testing).
 
 ### `Custom Macros`
+> Always as Generating Macros
+
 To define macros, you can do as such:
 ```lua
 macro {
