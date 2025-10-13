@@ -89,7 +89,7 @@ impl PackageManager {
     Ok(package_info)
   }
 
-  async fn fetch_package(&self, url: &str, cache_path: &Path) -> Result<()> {
+  pub async fn fetch_package(&self, url: &str, cache_path: &Path) -> Result<()> {
     fs::create_dir_all(cache_path)?;
 
     if url.starts_with("github:") {
@@ -338,7 +338,7 @@ impl PackageManager {
     Ok(())
   }
 
-  fn get_package_info(&self, cache_path: &Path, url: &str) -> Result<PackageInfo> {
+  pub fn get_package_info(&self, cache_path: &Path, url: &str) -> Result<PackageInfo> {
     let conf_path = cache_path.join("lulu.conf.lua");
 
     if !conf_path.exists() {
@@ -370,7 +370,7 @@ impl PackageManager {
     })
   }
 
-  async fn build_package(&self, cache_path: &Path) -> Result<()> {
+  pub async fn build_package(&self, cache_path: &Path) -> Result<()> {
     let conf_path = cache_path.join("lulu.conf.lua");
 
     if !conf_path.exists() {

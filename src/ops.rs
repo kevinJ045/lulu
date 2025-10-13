@@ -1,4 +1,5 @@
 use crate::lulu::{Lulu, LuluModSource};
+use crate::package_manager::PackageManager;
 use mlua::Lua;
 use mlua::prelude::LuaError;
 use rand::rngs::StdRng;
@@ -590,6 +591,49 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     lua.create_function(|_, (x, y, z): (usize, usize, Option<usize>)| {
       let nums: Vec<usize> = (x..=y).step_by(z.unwrap_or(1) as usize).collect();
       Ok(nums)
+    })?,
+  )?;
+
+  let lulu_clone = lulu.clone();
+
+  lua.globals().set(
+    "require_cached",
+    lua.create_async_function(move |_, url: String| {
+      let mut lulu_clone = lulu_clone.clone();
+      async move {
+        let pkg_manager = PackageManager::new().map_err(mlua::Error::external)?;
+
+        let cache_path = pkg_manager.get_package_cache_path(&url);
+        if !pkg_manager.is_cached(&url) {
+          pkg_manager
+            .fetch_package(&url, &cache_path)
+            .await
+            .map_err(mlua::Error::external)?;
+          pkg_manager
+            .build_package(&cache_path)
+            .await
+            .map_err(mlua::Error::external)?;
+        }
+
+        let cache_lulib_dir = cache_path.join(".lib");
+        if cache_lulib_dir.exists() {
+          for entry in std::fs::read_dir(&cache_lulib_dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file()
+              && entry.path().extension().and_then(|s| s.to_str()) == Some("lulib")
+            {
+              let mods = crate::bundle::load_lulib(&entry.path())?;
+              crate::bundle::reg_bundle_nods(&mut lulu_clone, mods)?;
+            }
+          }
+        }
+
+        let modname = lulu_clone.find_mod("init")?;
+
+        println!("{}", modname);
+
+        Ok(lulu_clone.exec_mod(modname.as_str()))
+      }
     })?,
   )?;
 

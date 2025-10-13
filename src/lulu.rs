@@ -375,11 +375,11 @@ impl Lulu {
     Ok(mainname)
   }
 
-  pub fn find_main(&mut self) -> mlua::Result<String> {
+  pub fn find_mod(&mut self, name: &str) -> mlua::Result<String> {
     let lmod = self
       .mods
       .iter()
-      .find(|m| m.name.ends_with("main"))
+      .find(|m| m.name.ends_with(name))
       .ok_or_else(|| mlua::Error::RuntimeError(format!("No main was found")))?;
 
     Ok(lmod.name.clone())

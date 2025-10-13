@@ -164,7 +164,7 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
   for (name, data) in mods.iter() {
     let conf = if let Some(confbytes) = data.conf.clone() {
       let conf = load_lulu_conf_from_bytecode(&lulu.lua, confbytes)?;
-
+      
       if let Some(macros) = conf.macros.clone() {
         lulu.compiler.compile(&macros, None, None);
       }
@@ -173,7 +173,10 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
     } else {
       None
     };
-    lulu.add_mod_from_bytecode(name.clone(), data.bytes.clone(), conf);
+
+    if !lulu.mods.iter().any(|m| m.name == *name) {
+      lulu.add_mod_from_bytecode(name.clone(), data.bytes.clone(), conf);
+    }
   }
 
   Ok(())
@@ -190,7 +193,7 @@ pub fn run_bundle(
 
   lulu.preload_mods()?;
 
-  let main_name = lulu.find_main()?;
+  let main_name = lulu.find_mod("main")?;
   lulu.exec_mod(main_name.as_str())?;
   Ok(())
 }
