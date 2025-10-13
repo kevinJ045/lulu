@@ -1,1 +1,1 @@
-iprint(require_cached("github:kevinj045/demo-lulu-proj-2"))
+fprint(require_cached("github:kevinj045/demo-lulu-proj-2"))

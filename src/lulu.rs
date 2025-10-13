@@ -105,7 +105,7 @@ impl Lulu {
             end
           end
 
-          function iprint(t)
+          function fprint(t)
             print(dump_item_into_string(t))
           end
 

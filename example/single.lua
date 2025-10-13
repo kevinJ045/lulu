@@ -59,7 +59,7 @@ function make_style(id)
   }
 end
 
-iprint(lml! {
+fprint(lml! {
   <table id="mytable">
     {
       foreach(items)(function(id)

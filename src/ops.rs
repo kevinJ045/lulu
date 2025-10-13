@@ -623,16 +623,19 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
               && entry.path().extension().and_then(|s| s.to_str()) == Some("lulib")
             {
               let mods = crate::bundle::load_lulib(&entry.path())?;
-              crate::bundle::reg_bundle_nods(&mut lulu_clone, mods)?;
+              crate::bundle::reg_bundle_nods(&mut lulu_clone, mods.clone())?;
+
+              let (modname, _) = mods
+                .iter()
+                .find(|(m, _)| m.ends_with("init"))
+                .ok_or_else(|| mlua::Error::RuntimeError(format!("No main was found")))?;
+
+              return Ok(lulu_clone.exec_mod(modname.as_str())?);
             }
           }
         }
 
-        let modname = lulu_clone.find_mod("init")?;
-
-        println!("{}", modname);
-
-        Ok(lulu_clone.exec_mod(modname.as_str()))
+        Ok(mlua::Value::Nil)
       }
     })?,
   )?;

@@ -1,10 +1,11 @@
 [package]
 name = "lulu"
-version = "0.0.52"
+version = "0.0.53"
 authors = ["makano"]
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/kevinj045/lulu"
+description = "A mini lua runtime"
 
 [dependencies]
 mlua = { version = "0.11.4", features = ["luajit", "vendored", "async", "macros", "serde", "send"] }

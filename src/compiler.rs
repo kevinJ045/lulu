@@ -960,7 +960,7 @@ impl Compiler {
         let mut branch_tokens = Vec::new();
         branch_tokens.extend(tokenize(format!("local {} = function()", name).as_str()));
         branch_tokens.extend(tokens[start..end].to_vec());
-        branch_tokens.extend(tokenize(format!("end\nlocal ok_{name}, err_{name} = pcall({name})\nif ok_{name} then\n  print(\"Finished test: {name}\")\nelse\n  print(\"Test {name} failed due to:\", err_{name})\nend", name = name).as_str()));
+        branch_tokens.extend(tokenize(format!("end\nlocal ok_{name}, err_{name} = pcall({name})\nif ok_{name} then\n  print(\"Finished test: {name}\")\nelse\n  print(\"Test {name} failed due to:\", err_{name})\nend\n\n", name = name).as_str()));
         branches.push((name, branch_tokens));
       }
 
