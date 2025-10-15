@@ -95,7 +95,7 @@ mods = {
 #### Modules names.
 Names like `main` and `init` are required, `main` is required as the only entry to run or kickstart the bundle *therefore the can only be one `main`*, however, `init` is a namcepaced entry module into libraries. 
 
-- **Note**: You cannot have duplicate names for modules in the same project.
+- ⚠️ **Note**: You cannot have duplicate names for modules in the same project.
 
 ### Fetch field
 The `fetch` field tells lulu, when loaded from github, that this github repository is a library and it has something to fetch.
@@ -271,7 +271,7 @@ There are two types of macros, `generating` and `transforming`.
 -    **generating**: These types of macros generate new code, meaning that the final output will not only be the input code you inserted into the macro.
 -    **transforming**: These types of macros only transform your code based on options, but the end result is always exactly your code.
 
-- **Note**: The last argument of your macro always has to be a block with `{` and `}` with the value in the middle. 
+- ⚠️ **Note**: The last argument of your macro always has to be a block with `{` and `}` with the value in the middle. 
 
 ### `cfg!`
 > Transforming Macro
@@ -434,7 +434,7 @@ lml_create("box", { prop = value },
 )
 ```
 
-- **Note**: The `lml_create` function does not exist, you will have to define it yourself based on your usecase.
+- ⚠️ **Note**: The `lml_create` function does not exist, you will have to define it yourself based on your usecase.
 
 ### `import!`
 > Transforming Macro
@@ -644,6 +644,109 @@ myCat:walk()
 myCat:speak()
 ```
 
+### `class!` Decorators
+Experimental class decorators to add a little bit of sugar to `lua`.
+
+```lua
+--- Simple example:
+class!
+@Meta({ author = "Makano", version = 1.0 })
+@Register()
+User:Base(),
+{
+  init(name, age) {
+    self.name = name
+    self.age = age
+  }
+
+  greet() {
+    print("Hello, " .. self.name)
+  }
+}
+
+--- Method Decorators:
+class!
+@Singleton()
+Logger,
+{
+  log(message) {
+    print("[LOG] " .. message)
+  }
+
+  @TimeIt()
+  heavyTask() {
+    -- some expensive computation
+    local sum = 0
+    for i = 1, 1_000_000 do
+      sum = sum + i
+    end
+    return sum
+  }
+}
+
+--- Parameter Decorators:
+class!
+@Component()
+Form,
+{
+  submit(@Validated("string") username, @Validated("number") age) {
+    print("Submitted:", username, age)
+  }
+
+  greet(@Default("Guest") name) {
+    print("Hello, " .. name)
+  }
+}
+
+--- Complex:
+class!
+@States({
+  count = 0
+})
+@Lens()
+Counter:State(),
+{
+  @Async()
+  @Stated()
+  increment(@Validated("number") step) {
+    self.count = self.count + step
+    print("Count is now", self.count)
+  }
+
+  @Log()
+  reset() {
+    self.count = 0
+    print("Counter reset")
+  }
+}
+
+--- For Ui or alike:
+class!
+@States({
+  name = "something",
+  id = 1
+})
+@Uses(Counter)
+@Component()
+MyWidget:Widget(props),
+{
+  @async()
+  @stated()
+  render(@Props({
+    name = self.name,
+    id = self.id
+  }) props, @List children) {
+    return lml! {
+      <box name={self.name} id={self.id}>
+        {children}
+      </box> 
+    }
+  }
+}
+
+```
+
+- ⚠️ **Note**: This feature is currently experimental. Decorators must be functions and compatible with Lua’s metatable-based classes. Multiple decorators must not conflict with each other.
 
 ### `test!`
 > Transforming Macro
@@ -956,7 +1059,7 @@ lulu test main.lua # or whatever file
 # for specific tests:
 lulu test main.lua -t subtraction
 ```
-- **Note**: Keep in mind, this will only compile when testing, otherwise this portion of the code will be ejected at compile time.
+- ⚠️ **Note**: Keep in mind, this will only compile when testing, otherwise this portion of the code will be ejected at compile time.
 
 ## More about lulu
 If you wanna help out with lulu, or wanna check out the project, [here](https://github.com/kevinJ045/lulu) is the github.

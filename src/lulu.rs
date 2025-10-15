@@ -43,6 +43,7 @@ impl Lulu {
     let mut compiler = Compiler::new(None);
 
     let std = compiler.compile(STD_FILE, None, None);
+    // println!("{}", std);
     
     Lulu {
       mods,

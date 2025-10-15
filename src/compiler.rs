@@ -390,10 +390,6 @@ impl Lexer {
 
   fn read_symbol(&mut self) -> Token {
     let ch = self.next_char().unwrap();
-    if ch == '.' && self.peek_char() == Some('.') {
-      self.next_char();
-      return Token::Symbol("..".into(), self.tokens.clone());
-    }
     Token::Symbol(ch.to_string(), self.tokens.clone())
   }
 }
@@ -1063,7 +1059,48 @@ end\n", enum=enum_name));
       Vec::new()
     };
 
-    let decl_str = self.generate_code(decl_tokens.clone()).trim().to_string();
+    // Parse class decorators
+    let mut i = 0;
+    let mut class_decorators: Vec<Vec<Token>> = Vec::new();
+    while i < decl_tokens.len() {
+      if let Some(Token::Symbol(s, _)) = decl_tokens.get(i) {
+        if s == "@" {
+          i += 1; // Skip '@'
+          let mut decorator_tokens = Vec::new();
+          if let Some(Token::Identifier(_, _)) = decl_tokens.get(i) {
+            decorator_tokens.push(decl_tokens[i].clone());
+            i += 1;
+            if let Some(Token::LeftParen(_)) = decl_tokens.get(i) {
+              let start_paren = i;
+              let mut paren_count = 1;
+              i += 1;
+              while i < decl_tokens.len() && paren_count > 0 {
+                if let Token::LeftParen(_) = &decl_tokens[i] {
+                  paren_count += 1;
+                } else if let Token::RightParen(_) = &decl_tokens[i] {
+                  paren_count -= 1;
+                }
+                i += 1;
+              }
+              decorator_tokens.extend_from_slice(&decl_tokens[start_paren..i]);
+            }
+            class_decorators.push(decorator_tokens);
+          }
+          while i < decl_tokens.len() && matches!(decl_tokens.get(i), Some(Token::Whitespace(_, _)))
+          {
+            i += 1;
+          }
+          continue;
+        }
+      }
+      break;
+    }
+
+    let remaining_decl_tokens = &decl_tokens[i..];
+    let decl_str = self
+      .generate_code(remaining_decl_tokens.to_vec())
+      .trim()
+      .to_string();
 
     #[allow(unused_assignments)]
     let mut class_name = String::new();
@@ -1163,20 +1200,64 @@ setmetatable({name}, {{
 
     let mut tokens = tokenize(lua_code.as_str());
 
-    let mut branches: Vec<(Vec<Token>, Vec<Token>)> = Vec::new();
+    let mut branches: Vec<(Vec<Token>, Vec<Token>, Vec<Vec<Token>>)> = Vec::new();
     let mut i = 0;
 
     while i < block_tokens.len() {
+      while i < block_tokens.len() && matches!(&block_tokens[i], Token::Whitespace(_, _)) {
+        i += 1;
+      }
+      if i >= block_tokens.len() {
+        break;
+      }
+
+      let mut method_decorators: Vec<Vec<Token>> = Vec::new();
+      while i < block_tokens.len() {
+        if let Some(Token::Symbol(s, _)) = block_tokens.get(i) {
+          if s == "@" {
+            i += 1;
+            let mut decorator_tokens = Vec::new();
+            if let Some(Token::Identifier(_, _)) = block_tokens.get(i) {
+              decorator_tokens.push(block_tokens[i].clone());
+              i += 1;
+              if let Some(Token::LeftParen(_)) = block_tokens.get(i) {
+                let start_paren = i;
+                let mut paren_count = 1;
+                i += 1;
+                while i < block_tokens.len() && paren_count > 0 {
+                  if let Token::LeftParen(_) = &block_tokens[i] {
+                    paren_count += 1;
+                  } else if let Token::RightParen(_) = &block_tokens[i] {
+                    paren_count -= 1;
+                  }
+                  i += 1;
+                }
+                decorator_tokens.extend_from_slice(&block_tokens[start_paren..i]);
+              }
+              method_decorators.push(decorator_tokens);
+            }
+            while i < block_tokens.len() && matches!(block_tokens.get(i), Some(Token::Whitespace(_, _)))
+            {
+              i += 1;
+            }
+            continue;
+          }
+        }
+        break;
+      }
+
       let (expr_tokens, next_i) = self.capture_expression(block_tokens, i);
       if expr_tokens.is_empty() {
-        panic!(
-          "Expected match pattern (identifier, string, number, call, or table) at {:?}",
-          i
-        );
+        if i < block_tokens.len() {
+          panic!(
+            "Expected match pattern (identifier, string, number, call, or table) at {:?}",
+            i
+          );
+        } else {
+          break;
+        }
       }
       i = next_i;
-
-      // println!("{:?}", expr_tokens);
 
       if let Some(Token::Whitespace(_, _)) = block_tokens.get(i) {
         i += 1;
@@ -1203,12 +1284,115 @@ setmetatable({name}, {{
         i += 1;
       }
 
-      branches.push((expr_tokens.clone(), block_tokens[start..end].to_vec()));
+      branches.push((
+        expr_tokens.clone(),
+        block_tokens[start..end].to_vec(),
+        method_decorators,
+      ));
     }
 
-    for (func, block) in branches.iter() {
+    for (func, block, decorators) in branches.iter() {
       let name = func[0].clone();
-      let args = func[1..].to_vec();
+      let mut args_tokens = if func.len() > 1 {
+        func[1..].to_vec()
+      } else {
+        Vec::new()
+      };
+
+      let mut method_args: Vec<Token> = Vec::new();
+      let mut param_decorators: Vec<(String, Vec<Token>)> = Vec::new();
+
+      if !args_tokens.is_empty() {
+        args_tokens = args_tokens[1..args_tokens.len() - 1].to_vec();
+      }
+
+      let mut i = 0;
+      while i < args_tokens.len() {
+        while i < args_tokens.len()
+          && (matches!(&args_tokens[i], Token::Whitespace(_, _))
+            || matches!(&args_tokens[i], Token::Comma(_)))
+        {
+          i += 1;
+        }
+        if i >= args_tokens.len() {
+          break;
+        }
+
+        let mut current_arg_decorators = Vec::new();
+        while i < args_tokens.len() {
+          if let Some(Token::Symbol(s, _)) = args_tokens.get(i) {
+            if s == "@" {
+              i += 1;
+              let mut decorator_tokens = Vec::new();
+              if let Some(Token::Identifier(_, _)) = args_tokens.get(i) {
+                decorator_tokens.push(args_tokens[i].clone());
+                i += 1;
+                if let Some(Token::LeftParen(_)) = args_tokens.get(i) {
+                  let start_paren = i;
+                  let mut paren_count = 1;
+                  i += 1;
+                  while i < args_tokens.len() && paren_count > 0 {
+                    if let Token::LeftParen(_) = &args_tokens[i] {
+                      paren_count += 1;
+                    } else if let Token::RightParen(_) = &args_tokens[i] {
+                      paren_count -= 1;
+                    }
+                    i += 1;
+                  }
+                  decorator_tokens.extend_from_slice(&args_tokens[start_paren..i]);
+                }
+                current_arg_decorators.push(decorator_tokens);
+              }
+              while i < args_tokens.len()
+                && matches!(args_tokens.get(i), Some(Token::Whitespace(_, _)))
+              {
+                i += 1;
+              }
+              continue;
+            }
+          }
+          break;
+        }
+
+        if i < args_tokens.len() {
+          if let Token::Identifier(arg_name, _) = &args_tokens[i] {
+            method_args.push(args_tokens[i].clone());
+            method_args.push(Token::Comma(0));
+
+            for decorator in current_arg_decorators {
+              param_decorators.push((arg_name.clone(), decorator));
+            }
+          } else {
+            method_args.push(args_tokens[i].clone());
+          }
+          i += 1;
+        }
+      }
+
+      if !method_args.is_empty() {
+        if matches!(method_args[method_args.len() - 1], Token::Comma(_)) {
+          method_args.pop();
+        } else if matches!(method_args[method_args.len() - 1], Token::RightParen(_)) {
+          method_args.pop();
+          if !method_args.is_empty() {
+            if matches!(method_args[method_args.len() - 1], Token::Comma(_)) {
+              method_args.pop();
+            }
+          }
+        }
+      }
+
+      let mut args_with_parens = vec![Token::LeftParen(0)];
+      args_with_parens.extend(method_args);
+      args_with_parens.push(Token::RightParen(0));
+      let args = args_with_parens;
+
+      let mut param_decorator_code = String::new();
+      for (arg_name, decorator) in param_decorators {
+        let decorator_str = self.generate_code(decorator);
+        param_decorator_code.push_str(&format!("{0} = {1}(self, {0})\n", arg_name, decorator_str));
+      }
+      let param_decorator_tokens = tokenize(&param_decorator_code);
 
       let processed_block = self.process_macros(block.clone(), path.clone(), conf.clone());
 
@@ -1218,18 +1402,35 @@ setmetatable({name}, {{
         Token::Whitespace(" ".to_string(), 0),
         Token::Identifier(class_name.clone(), 0),
         Token::Symbol(":".to_string(), 0),
-        name.clone()
+        name.clone(),
       ]);
 
       tokens.extend(args);
       tokens.extend(vec![Token::Whitespace("\n".to_string(), 0)]);
+      tokens.extend(param_decorator_tokens);
       tokens.extend(processed_block);
       tokens.extend(vec![Token::Whitespace("\n".to_string(), 0)]);
       tokens.extend(vec![
         Token::Identifier("end".to_string(), 0),
         Token::Whitespace("\n".to_string(), 0),
       ]);
+
+      for decorator in decorators.iter().rev() {
+        let decorator_str = self.generate_code(decorator.clone());
+        let method_name_str = self.generate_code(vec![name.clone()]);
+        let decorated_method =
+          format!("{0}.{1} = {2}({0}, {0}.{1})\n", class_name, method_name_str, decorator_str);
+        tokens.extend(tokenize(&decorated_method));
+      }
     }
+
+    // Apply class decorators
+    let mut decorator_code = String::new();
+    for decorator in class_decorators.iter().rev() {
+      let decorator_str = self.generate_code(decorator.clone());
+      decorator_code.push_str(&format!("{0} = {1}({0})\n", class_name, decorator_str));
+    }
+    tokens.extend(tokenize(&decorator_code));
 
     self.process_macros(tokens, path, conf)
   }
