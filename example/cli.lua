@@ -1,22 +1,11 @@
+local items = { "one", "two", "three" }
 
-  class!
-  @States({
-    name = "something",
-    id = 1
-  })
-  @Component()
-  MyWidget:Widget(props),
-  {
-    @async()
-    @stated()
-    render(@Props({
-      name = self.name,
-      id = self.id
-    }) props, @List children) {
-      return lml! {
-        <box name={self.name} id={self.id}>
-          {children}
-        </box> 
-      }
+local list = lml! {
+  <list>
+    {
+      Vec(items):map(function(item)
+        return <item text={item} />
+      end).items
     }
-  }
+  </list>
+}
