@@ -276,7 +276,7 @@ There are two types of macros, `generating` and `transforming`.
 ### `cfg!`
 > Transforming Macro
 
-This macro is like compiling a portion of code condiionally, for example if you would like to have a portion of code run only on linux or only on windows:
+This macro is like compiling a portion of code conditionally, for example if you would like to have a portion of code run only on linux or only on windows:
 
 **OS**:
 ```lua
@@ -338,7 +338,7 @@ cfg! set, {
 ### `match!` 
 > Generating Macro
 
-The `match!` macro let's you do a quick `switch` statement. But it also let's you check values in however condition you want.
+The `match!` macro lets you do a quick `switch` statement. But it also lets you check values in however condition you want.
 
 ```lua
 match! value, {
@@ -374,7 +374,7 @@ local some_dynamic_value = match! value, {
 ### `for_each!`
 > Generating Macro
 
-This is a simple macro i made as a test, it basically let's you do for loops but with less code:
+This is a simple macro i made as a test, it basically lets you do for loops but with less code:
 ```lua
 for_each! item, items, {
   print(item)
@@ -385,12 +385,26 @@ for item in ipairs(items) do
 end
 ```
 
+### `for_pairs!`
+> Generating Macro
+
+Much like the [`for_each!`](#for_each) macro, but for pairs.
+```lua
+for_pairs! key, value, items, {
+  print(key, "=", value)
+}
+-- translates to:
+for key, value in pairs(items) do 
+  print(key, "=", value)
+end
+```
+
 ### `lml!`
 > Generating Macro
 
-Basically introduces `JSX` into lua, but remember it might have issues, it's still experimental. *This will require you to have a function called `lml_create`.
+Basically introduces `JSX` into lua, but remember it might have issues, it's still experimental. This will require you to have a function called `lml_create`.
 ```lua
-my_button = lml! {
+local my_table = lml! {
   <table id="mytable">
     {
       foreach(items)(function(id)
@@ -401,6 +415,26 @@ my_button = lml! {
 }
 ```
 This macro rewrites the whole block into valid lua code(or at least should).
+
+Here is a simple example:
+```lua
+local my_button = lml! {
+  <box prop={value}>
+    <CustomElement />
+    <button id={1} name="the-name" />
+  </box>
+}
+-- translates to
+lml_create("box", { prop = value },
+  lml_create(CustomElement, {}),
+  lml_create("button", {
+    id = 1,
+    name = "the-name"
+  })
+)
+```
+
+- **Note**: The `lml_create` function does not exist, you will have to define it yourself based on your usecase.
 
 ### `import!`
 > Transforming Macro
@@ -416,7 +450,7 @@ local smn = require("src-something")
 ```
 
 ### `include_bytes!`
-> Transforming Macro
+> Generating Macro
 
 This macro is basically like the `import!` macro, but instead it import files into bytes.
 
@@ -424,6 +458,192 @@ This macro is basically like the `import!` macro, but instead it import files in
 include_bytes! text_bytes, { "./text.txt" }
 print(text_bytes) -- will be the text's bytes
 ```
+
+
+### `when!`
+> Generating Macro
+
+A simple if statement. 
+
+```lua
+when! x > 5, {
+  print("if true")
+}
+-- or
+when! x > 5, {
+  print("if true")
+}, {
+  print("if false")
+}
+```
+
+### `repeat_n!`
+> Generating Macro
+
+A simple macro to repeat a task based on iteration.
+```lua
+repeat_n! 1, 10, {
+  print(i) -- prints from 1 to 10
+}
+```
+
+### `try_catch!`
+> Generating Macro
+
+A simple try-catch statement.
+```lua
+try_catch! {
+  -- the try block
+  error("some_error")
+}, { -- the catch block is optional
+  -- you can use the variable err
+  -- here to get the error
+  print(f"Error: {err}")
+}
+```
+
+### `guard!`
+> Generating Macro
+
+Checks for a condition then throws an error
+```lua
+guard! {
+  -- has to be true, or else throws error
+  is_allowed(user, page)
+}, {
+  "the error to throw"
+}
+```
+
+### `enum!`
+> Generating Macro
+
+Creates enums that can be used with [`match!`](#match)
+```lua
+enum! Something, {
+  Variant(content)
+  EmptyVariant
+}, { -- optional
+  -----  Enum Methods  -----
+  -- this will let you register
+  -- custom functions to each 
+  -- of the instances
+  unwrap(item) {
+    return match! item, {
+      Something.Variant {
+        return item.content
+      }
+      _ {
+        return nil
+      }
+    }
+  }
+  change_content(item, value) {
+    match! item, {
+      Something.Variant {
+        item.content =  value
+      }
+    }
+  }
+}
+
+local value = Something.Variant("some content")
+
+match! value, {
+  Something.Variant {
+    print(val.content)
+  }
+  Something.EmptyVariant {
+    print("empty")
+  }
+  _ {
+    print("Probably not a Something")
+  }
+}
+
+-- you can also check if a value is a enum as:
+Something.is(TheValue)
+-- or, check if it's exactly one of the variants
+Something.is(TheValue, Something.EmptyVariant)
+
+--- you can use the functions as
+local something = Something.Variant("the content")
+print(something.unwrap())
+```
+
+### `class!`
+> Generating Macro
+
+Creates a simple class
+```lua
+-- simple usecase
+class! Person(name), {
+  speak(){
+    print(f"Hi, I am {self.name}")
+  }
+}
+
+local p = Person("John")
+p:speak()
+
+-- no arguments
+class! MyClass, {
+  function MyClass:method()
+    ...
+  end
+}
+
+-- constructor
+class! MyClass, {
+  function MyClass:method()
+    ...
+  end
+}, {
+  print("This is the constructor")
+  print(args[1])
+}
+
+-- init
+class! MyClass, {
+  -- the init method will be called
+  -- on construction
+  function MyClass:init(arg1, arg2)
+    self.something = arg1
+  end
+}
+
+-- inheritance
+class! MyClass, {}
+
+class! MySubClass:MyClass, {...} -- or
+class! MySubClass:MyClass(...), {...}
+```
+
+**Example**:
+```lua
+class! Animal(name), {
+  function Animal:walk()
+    print(f"{self.name} is walking.")
+  end
+}
+
+class! Cat:Animal(name, voice), {
+  function Animal:speak()
+    print(
+      self.voice == "thick" and
+        f"MEOWWWW"
+      or
+        f"meow"
+    )
+  end
+}
+
+local myCat = Cat("Mustard", "thick")
+
+myCat:walk()
+myCat:speak()
+```
+
 
 ### `test!`
 > Transforming Macro
@@ -436,7 +656,7 @@ This macro is special. More about it at [testing](#testing).
 To define macros, you can do as such:
 ```lua
 macro {
-  add_numbers ($num1, $num2) {
+  add_numbers ($num1, $num2, $_num3) { -- parameters with _ at the start are optional
     $num1 + $num2
   }
 }
@@ -494,7 +714,7 @@ current_path -- the current path
 ---
 
 -- gives you either the pathname if it finds it in
--- `.lib` or just let's the OS looks it up  
+-- `.lib` or just lets the OS looks it up  
 lookup_dylib("SDL2.dll")
 
 -- lets the function provided access the environment of the current module
@@ -557,6 +777,141 @@ serde.json.decode("...") -- returns a lua table from json string
 serde.json.encode({
   something = "value"
 }) -- returns a json string
+```
+
+### Helper "Classes"
+I added a few classes that can help you do things quicker.
+
+#### `Vec`
+You can make `Vecs` with either `vec!` macro or just `Vec({ lua_table_here })`.
+- If you make it with `vec!`, you can access the properties as `.`, like `.push()`, `.insert()`, ...
+- If you make it with `Vec({..})`, you can access the properties as `:`, like `:push()`, `:insert()`, ...
+```lua
+local vec = vec! {
+  1, 2, 3, 4
+} -- or
+local vec = Vec({
+  1, 2, 3, 4,
+})
+-- For this example,
+-- i will be using vec!
+-- you can also do Vec({...}).into()
+-- to access . indexing
+
+--- Mutation
+vec.push(5) -- insert to last
+vec.insert(1, 0) -- insert at (1 means the starting)
+vec.sort() -- can take a sort function
+vec.reverse() -- mutates
+vec.pop() -- pops the last item
+vec.set(5, 6) -- sets
+vec.remove_at(5) -- removes that value
+vec.remove(function(item, index, vec) ... end) -- removes if returns true
+vec.extend(another_vec) -- merges two vecs
+
+--- Getting
+vec.len() -- get length
+vec.get(1) -- gets by index
+vec.find(function(item, index, vec)) -- returns the first true
+vec.items -- gives you items as lua table
+
+--- Cloning
+vec.clone() -- clones
+vec.map(function(item, index, vec) ... end)
+vec.for_each(function(item, index, vec) ... end)
+vec.filter(function(item, index, vec) ... end) -- filters all trues
+
+--- Misc
+vec:into() -- gives you the . indexing 
+vec.collect() -- gives you the : indexing 
+```
+
+#### `String`
+A simple string wrapper for string functions.
+```lua
+local string = String("String content").into() -- also follows the into
+
+--- Cloning
+string.clone()
+string.split("lua pattern here") -> Vec
+
+--- Mutating
+string.push_str("some_string") -- only for lua strings
+string.push_strint(String("some_string")) -- only for String
+
+--- Getting
+string.starts_with("something") -> bool
+string.ends_with("something") -> bool
+string.as_str() -> lua string
+
+--- Regex
+string.match("^(.+)")
+string.replace("^(.+)", "$1 $2")
+string.replace("^(.+)", function(all, group1) ... end)
+```
+
+#### `Map`, `Set`, `WeakMap` and `WeakSet`
+Simple imlementations of `Maps` and `Sets`.
+- `WeakMap` inherits `Map`
+- `WeakSet` inherits `Set`
+```lua
+--- Maps ---
+  local map = Map():into()
+  local weakmap = WeakMap():into()
+
+  --- Cloning
+  map.clone()
+  weakmap.clone()
+
+  --- Mutating
+  map.set(key, value)
+  map.remove(key)
+
+  --- Getting
+  map.get(key)
+  map.has(key)
+  map.keys()
+  map.values()
+
+--- Sets ---
+  local set = Set():into()
+  local weakset = WeakSet():into()
+
+  --- Cloning
+  set.clone()
+  weakset.clone()
+
+  --- Mutating
+  set.add(item)
+  set.remove(item)
+  set.clear()
+
+  --- Getting
+  set.values()
+  set.has(item)
+```
+
+#### `HashMap` and `HashSet`
+`HashMap` and `HashSet` implementations made in rust. These two can not be cloned.
+```lua
+--- HashMap ---
+local map = HashMap()
+
+local key = {}
+map:set(key, "the value")
+print(map:get(key)) -- the value
+
+map:has(key) -> bool
+map:remove(key) -- removes
+
+--- Set ---
+local myset = HashSet()
+
+myset:add("SomeValue") -- adds
+myset:remove("SomeValue") -- removes and cleans memory
+myset:has("SomeValue") -> bool
+myset:values() -> lua table
+myset:clear() -> -- removes eveyrthign
 ```
 
 ## Lulu Syntax

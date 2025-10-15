@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -66,7 +67,8 @@
       gap: 1rem;
     }
 
-    .sidebar, .content {
+    .sidebar,
+    .content {
       background-color: var(--background);
       border: 1px solid var(--border);
       padding: 1.5rem;
@@ -81,13 +83,26 @@
       padding-top: 2rem;
     }
 
+
+    @media screen and (max-width: 900px) {
+      body {
+        flex-direction: column;
+        height: auto;
+        overflow: auto;
+      }
+      .sidebar {
+        width: auto;
+      }
+    }
+
     .content {
       flex-grow: 1;
       overflow-y: auto;
       padding-top: 2rem;
     }
 
-    .sidebar::before, .content::before {
+    .sidebar::before,
+    .content::before {
       content: attr(data-title);
       position: absolute;
       top: -1px;
@@ -131,7 +146,7 @@
     .sidebar li a:hover {
       background-color: var(--hover);
     }
-    
+
     .sidebar li a.h1 {
       font-weight: bold;
       color: var(--accent);
@@ -146,7 +161,12 @@
       font-style: italic;
     }
 
-    .content h1, .content h2, .content h3, .content h4, .content h5, .content h6 {
+    .content h1,
+    .content h2,
+    .content h3,
+    .content h4,
+    .content h5,
+    .content h6 {
       color: var(--accent);
       border-bottom: 1px solid var(--border);
       padding-bottom: 5px;
@@ -180,77 +200,97 @@
       background: var(--sidebar-bg);
       color: var(--text);
     }
+
     .hljs-keyword {
       color: var(--mauve);
     }
+
     .hljs-literal {
       color: var(--peach);
     }
+
     .hljs-symbol,
     .hljs-bullet,
     .hljs-link {
       color: var(--pink);
     }
+
     .hljs-string {
       color: var(--green);
     }
+
     .hljs-title,
     .hljs-name,
     .hljs-section {
       color: var(--yellow);
     }
+
     .hljs-tag,
     .hljs-attr {
       color: var(--lavender);
     }
+
     .hljs-attribute {
       color: var(--peach);
     }
+
     .hljs-variable {
       color: var(--text);
     }
+
     .hljs-template-variable {
       color: var(--pink);
     }
+
     .hljs-comment,
     .hljs-quote,
     .hljs-deletion {
       color: var(--overlay0);
       font-style: italic;
     }
+
     .hljs-meta {
       color: var(--red);
     }
+
     .hljs-number {
       color: var(--peach);
     }
+
     .hljs-regexp {
       color: var(--sky);
     }
-    .hljs-function > .hljs-title {
+
+    .hljs-function>.hljs-title {
       color: var(--blue);
     }
+
     .hljs-params {
-        color: var(--peach);
+      color: var(--peach);
     }
+
     .hljs-built_in {
-        color: var(--sky);
+      color: var(--sky);
     }
+
     .hljs-type {
-        color: var(--yellow);
+      color: var(--yellow);
     }
+
     .hljs-strong {
       font-weight: bold;
     }
+
     .hljs-emphasis {
       font-style: italic;
     }
+
     .hljs-addition {
       color: var(--green);
     }
-
   </style>
 </head>
+
 <body>
   <div class="sidebar" data-title="[ Topics ]">
     <ul id="topics-list"></ul>
@@ -262,17 +302,17 @@
     document.addEventListener('DOMContentLoaded', () => {
       const contentDiv = document.getElementById('content');
       const topicsList = document.getElementById('topics-list');
-      
+
       fetch('docs.md')
         .then(response => response.text())
         .then(text => {
           contentDiv.innerHTML = marked.parse(text, { breaks: true });
-          
+
           const headings = contentDiv.querySelectorAll('h1, h2, h3');
           headings.forEach(heading => {
             const li = document.createElement('li');
             const a = document.createElement('a');
-            
+
             const id = heading.textContent.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^\w-]+/g, '');
             heading.id = id;
 
@@ -289,4 +329,5 @@
     });
   </script>
 </body>
+
 </html>

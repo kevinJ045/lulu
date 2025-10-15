@@ -27,7 +27,87 @@ impl MacroRegistry {
           "iterator".to_string(),
           "block".to_string(),
         ],
-        body: tokenize("for $item in ipairs($iterator) do\n$block\nend"),
+        body: tokenize("\nfor $item in ipairs($iterator) do\n$block\nend\n"),
+      },
+    );
+    macros.insert(
+      "for_pairs".to_string(),
+      MacroDefinition {
+        name: "for_pairs".to_string(),
+        params: vec![
+          "key".to_string(),
+          "value".to_string(),
+          "iterator".to_string(),
+          "block".to_string(),
+        ],
+        body: tokenize("\nfor $key, $value in pairs($iterator) do\n$block\nend\n"),
+      },
+    );
+    macros.insert(
+      "when".to_string(),
+      MacroDefinition {
+        name: "when".to_string(),
+        params: vec![
+          "condition".to_string(),
+          "then_block".to_string(),
+          "_otherwise".to_string(),
+        ],
+        body: tokenize("\nif $condition then\n$then_block\nelse\n$_otherwise\nend\n"),
+      },
+    );
+    macros.insert(
+      "repeat_n".to_string(),
+      MacroDefinition {
+        name: "repeat_n".to_string(),
+        params: vec!["start".to_string(), "times".to_string(), "body".to_string()],
+        body: tokenize("\nfor i = $start, $times do\n$body\nend\n"),
+      },
+    );
+    macros.insert(
+      "try_catch".to_string(),
+      MacroDefinition {
+        name: "try_catch".to_string(),
+        params: vec![
+          "try_block".to_string(),
+          "_catch_block".to_string()
+        ],
+        body: tokenize("\nlocal ok, err = pcall(function()\n$try_block\nend)\nif not ok then\n$_catch_block\nend\n"),
+      },
+    );
+    macros.insert(
+      "lazy".to_string(),
+      MacroDefinition {
+        name: "lazy".to_string(),
+        params: vec!["name".to_string(), "expr".to_string()],
+        body: tokenize("\nlocal __lazy_$name\nfunction get_$name()\nif not __lazy_$name then __lazy_$name = $expr end\nreturn __lazy_$name\nend\n"),
+      },
+    );
+    macros.insert(
+      "guard".to_string(),
+      MacroDefinition {
+        name: "guard".to_string(),
+        params: vec!["condition".to_string(), "error".to_string()],
+        body: tokenize("\nif not ($condition) then $error end\n"),
+      },
+    );
+    macros.insert(
+      "class".to_string(),
+      MacroDefinition {
+        name: "class".to_string(),
+        params: vec![
+          "name".to_string(),
+          "methods".to_string(),
+          "_constructor".to_string(),
+        ],
+        body: tokenize("into(nil)"),
+      },
+    );
+    macros.insert(
+      "enum".to_string(),
+      MacroDefinition {
+        name: "enum".to_string(),
+        params: vec!["name".to_string(), "methods".to_string()],
+        body: tokenize("into(nil)"),
       },
     );
     macros.insert(
@@ -743,6 +823,10 @@ impl Compiler {
       self.compile_tests(args, path, conf)
     } else if macro_name == "match" {
       self.compile_match(args, path, conf)
+    } else if macro_name == "class" {
+      self.compile_class(args, path, conf)
+    } else if macro_name == "enum" {
+      self.compile_enum(args, path, conf)
     } else if macro_name == "import" {
       let mut cargs = args.clone();
       let vname = get_token_string(&args[0][0]).unwrap();
@@ -782,6 +866,372 @@ impl Compiler {
     result.extend(expanded);
 
     i
+  }
+
+  fn compile_enum(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
+    if args.len() < 2 {
+      panic!("enum! expects two arguments: name and variants block");
+    }
+
+    let name_tokens = &args[0];
+    let variants_tokens = &args[1];
+
+    let enum_name = self.generate_code(name_tokens.clone()).trim().to_string();
+    let variants_code = self.generate_code(variants_tokens.clone());
+
+    let mut variants = Vec::new();
+    for line in variants_code.lines() {
+      let line = line.trim();
+      if line.is_empty() {
+        continue;
+      }
+      if let Some(paren_idx) = line.find('(') {
+        let variant_name = line[..paren_idx].trim();
+        let args_str = line[paren_idx + 1..line.len() - 1].trim();
+        let args: Vec<String> = if args_str.is_empty() {
+          Vec::new()
+        } else {
+          args_str.split(',').map(|s| s.trim().to_string()).collect()
+        };
+        variants.push((variant_name.to_string(), Some(args)));
+      } else {
+        variants.push((line.to_string(), None));
+      }
+    }
+
+    let mut lua = String::new();
+
+    lua.push_str(&format!("{} = {{}}\n", enum_name));
+    lua.push_str(&format!("{}.func = {{}}\n", enum_name));
+    for (vname, args) in &variants {
+      if let Some(args) = args {
+        // Tuple-like variant (has fields)
+        let args_list = args.join(", ");
+        lua.push_str(&format!(
+            "function {enum}.{vname}({args_list})\n  local o = {{}}\n",
+            enum = enum_name,
+            vname = vname,
+            args_list = args_list
+        ));
+        for arg in args {
+          lua.push_str(&format!("  o.{arg} = {arg}\n", arg = arg));
+        }
+        lua.push_str(&format!(
+            "  o.__enum = {enum}.{vname}\n",
+            enum = enum_name
+        ));
+        lua.push_str(&format!(
+            "  o.__is = function(a, b)\n    if type(b) == 'function' then return a.__enum == b end\n    if type(b) == 'table' and b.__enum then return a.__enum == b.__enum end\n    return false\n  end\n",
+        ));
+        lua.push_str(&format!(
+            "  setmetatable(o, {{ __index = function(tbl, key) \
+               local item = {enum}.func[key] \
+               if type(item) == 'function' then return function(...) return item(o, ...) end end \
+               return {enum}.func[key] \
+             end }})\n  return o\nend\n",
+            enum = enum_name
+        ));
+      } else {
+        lua.push_str(&format!(
+            "do local o = {{}}; o.__enum = '{vname}'; o.__is = function(a,b) \
+               if type(b)=='function' then return a.__enum==b end; \
+               if type(b)=='table' and b.__enum then return a.__enum==b.__enum end; \
+               return false; end; \
+               setmetatable(o, {{ __index = function(tbl, key) \
+                local item = {enum}.func[key] \
+                if type(item) == 'function' then return function(...) return item(o, ...) end end \
+                return {enum}.func[key] \
+              end }}); {enum}.{vname} = o; end\n",
+            enum = enum_name,
+            vname = vname
+        ));
+      }
+    }
+
+    lua.push_str(&format!("
+function {enum}.is(obj, variant)
+  if type(obj) ~= 'table' then return false end
+  if obj.__enum == nil then return false end
+  if variant then
+    return obj.__enum == variant
+  end
+  return true
+end\n", enum=enum_name));
+
+    let mut tokenized = tokenize(&lua);
+
+    if args.len() > 2 {
+      let mut branches: Vec<(Vec<Token>, Vec<Token>)> = Vec::new();
+      let tokens = &args[2];
+      let mut i = 0;
+
+      while i < tokens.len() {
+        let (expr_tokens, next_i) = self.capture_expression(tokens, i);
+        if expr_tokens.is_empty() {
+          panic!(
+            "Expected match pattern (identifier, string, number, call, or table) at {:?}",
+            i
+          );
+        }
+        i = next_i;
+
+        // println!("{:?}", expr_tokens);
+
+        if let Some(Token::Whitespace(_, _)) = tokens.get(i) {
+          i += 1;
+        }
+
+        match tokens.get(i) {
+          Some(Token::LeftBrace(_)) => i += 1,
+          other => panic!("Expected '{{' after match pattern, got {:?}", other),
+        }
+
+        let start = i;
+        let mut brace_count = 1;
+        while brace_count > 0 {
+          match &tokens[i] {
+            Token::LeftBrace(_) => brace_count += 1,
+            Token::RightBrace(_) => brace_count -= 1,
+            _ => {}
+          }
+          i += 1;
+        }
+        let end = i - 1;
+
+        if let Some(Token::Whitespace(_, _)) = tokens.get(i) {
+          i += 1;
+        }
+
+        branches.push((expr_tokens.clone(), tokens[start..end].to_vec()));
+      }
+
+      for (func, block) in branches.iter() {
+        let name = func[0].clone();
+        let args = func[1..].to_vec();
+
+        let processed_block = self.process_macros(block.clone(), path.clone(), conf.clone());
+
+        tokenized.extend(vec![
+          Token::Whitespace("\n".to_string(), 0),
+          Token::Identifier(enum_name.clone(), 0),
+          Token::Symbol(".".to_string(), 0),
+          Token::Identifier("func".to_string(), 0),
+          Token::Symbol(".".to_string(), 0),
+          name.clone(),
+          Token::Whitespace(" ".to_string(), 0),
+          Token::Symbol("=".to_string(), 0),
+          Token::Whitespace(" ".to_string(), 0),
+          Token::Identifier("function".to_string(), 0),
+        ]);
+
+        tokenized.extend(args);
+        tokenized.extend(vec![Token::Whitespace("\n".to_string(), 0)]);
+        tokenized.extend(processed_block);
+        tokenized.extend(vec![Token::Whitespace("\n".to_string(), 0)]);
+        tokenized.extend(vec![
+          Token::Identifier("end".to_string(), 0),
+          Token::Whitespace("\n".to_string(), 0),
+        ]);
+      }
+    }
+
+    // println!("{}", self.generate_code(tokenized.clone()));
+
+    self.process_macros(tokenized, path, conf)
+  }
+
+  fn compile_class(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
+    if args.len() < 2 {
+      panic!("Class expects two arguments");
+    }
+
+    let decl_tokens = &args[0];
+    let block_tokens = &args[1];
+    let constructor_block = if args.len() > 2 {
+      args[2].clone()
+    } else {
+      Vec::new()
+    };
+
+    let decl_str = self.generate_code(decl_tokens.clone()).trim().to_string();
+
+    #[allow(unused_assignments)]
+    let mut class_name = String::new();
+    let mut parent_name = None;
+    let mut constructor_args: Vec<String> = Vec::new();
+
+    let mut buffer = decl_str.clone();
+
+    if let Some(idx) = buffer.find(':') {
+      class_name = buffer[..idx].trim().to_string();
+      buffer = buffer[idx + 1..].trim().to_string();
+
+      if let Some(paren_idx) = buffer.find('(') {
+        parent_name = Some(buffer[..paren_idx].trim().to_string());
+        let args_str = buffer[paren_idx + 1..buffer.len() - 1].trim();
+        if !args_str.is_empty() {
+          constructor_args = args_str.split(',').map(|s| s.trim().to_string()).collect();
+        }
+      } else {
+        parent_name = Some(buffer.trim().to_string());
+      }
+    } else {
+      if let Some(paren_idx) = buffer.find('(') {
+        class_name = buffer[..paren_idx].trim().to_string();
+        let args_str = buffer[paren_idx + 1..buffer.len() - 1].trim();
+        if !args_str.is_empty() {
+          constructor_args = args_str.split(',').map(|s| s.trim().to_string()).collect();
+        }
+      } else {
+        class_name = buffer;
+      }
+    }
+
+    let mut self_assignments = String::new();
+    for (i, arg) in constructor_args.iter().enumerate() {
+      self_assignments.push_str(&format!("self.{arg} = args[{}]\n", i + 1, arg = arg));
+    }
+
+    let init_line = if let Some(parent) = parent_name.clone() {
+      format!(
+        "{} = setmetatable({{}}, {{ __index = {} }})",
+        class_name, parent
+      )
+    } else {
+      format!("{} = {{}}", class_name)
+    };
+
+    let index_parent = if let Some(parent) = parent_name.clone() {
+      format!("__index = {},", parent)
+    } else {
+      "".to_string()
+    };
+
+    let call_parent = if let Some(parent) = parent_name.clone() {
+      format!("{}.__construct(self, false, ...)", parent)
+    } else {
+      "".to_string()
+    };
+
+    let constructor_code = format!(
+      r#"
+function {name}:__construct(is_first, ...)
+  local args = {{...}}
+  {call_parent}
+  {assignments}
+  {constructor_block}
+  if self.init and is_first then self:init(...) end
+end
+"#,
+      name = class_name,
+      call_parent = call_parent,
+      constructor_block = self.generate_code(constructor_block),
+      assignments = self_assignments
+    );
+
+    let lua_code = format!(
+      r#"{init_line}
+{name}.__index = {name}
+
+setmetatable({name}, {{
+  {index_parent}
+  __call = function(cls, ...)
+    local self = setmetatable({{}}, cls)
+    if self.__construct then self:__construct(true, ...) end
+    return self
+  end
+}})
+
+{constructor_code}
+
+"#,
+      name = class_name,
+      index_parent = index_parent,
+      init_line = init_line,
+      constructor_code = constructor_code
+    );
+
+    let mut tokens = tokenize(lua_code.as_str());
+
+    let mut branches: Vec<(Vec<Token>, Vec<Token>)> = Vec::new();
+    let mut i = 0;
+
+    while i < block_tokens.len() {
+      let (expr_tokens, next_i) = self.capture_expression(block_tokens, i);
+      if expr_tokens.is_empty() {
+        panic!(
+          "Expected match pattern (identifier, string, number, call, or table) at {:?}",
+          i
+        );
+      }
+      i = next_i;
+
+      // println!("{:?}", expr_tokens);
+
+      if let Some(Token::Whitespace(_, _)) = block_tokens.get(i) {
+        i += 1;
+      }
+
+      match block_tokens.get(i) {
+        Some(Token::LeftBrace(_)) => i += 1,
+        other => panic!("Expected '{{' after match pattern, got {:?}", other),
+      }
+
+      let start = i;
+      let mut brace_count = 1;
+      while brace_count > 0 {
+        match &block_tokens[i] {
+          Token::LeftBrace(_) => brace_count += 1,
+          Token::RightBrace(_) => brace_count -= 1,
+          _ => {}
+        }
+        i += 1;
+      }
+      let end = i - 1;
+
+      if let Some(Token::Whitespace(_, _)) = block_tokens.get(i) {
+        i += 1;
+      }
+
+      branches.push((expr_tokens.clone(), block_tokens[start..end].to_vec()));
+    }
+
+    for (func, block) in branches.iter() {
+      let name = func[0].clone();
+      let args = func[1..].to_vec();
+
+      let processed_block = self.process_macros(block.clone(), path.clone(), conf.clone());
+
+      tokens.extend(vec![
+        Token::Whitespace("\n".to_string(), 0),
+        Token::Identifier("function".to_string(), 0),
+        Token::Whitespace(" ".to_string(), 0),
+        Token::Identifier(class_name.clone(), 0),
+        Token::Symbol(":".to_string(), 0),
+        name.clone()
+      ]);
+
+      tokens.extend(args);
+      tokens.extend(vec![Token::Whitespace("\n".to_string(), 0)]);
+      tokens.extend(processed_block);
+      tokens.extend(vec![Token::Whitespace("\n".to_string(), 0)]);
+      tokens.extend(vec![
+        Token::Identifier("end".to_string(), 0),
+        Token::Whitespace("\n".to_string(), 0),
+      ]);
+    }
+
+    self.process_macros(tokens, path, conf)
   }
 
   fn get_env(&self, name: &String) -> Option<String> {
@@ -1068,43 +1518,60 @@ impl Compiler {
 
       let mut branch_tokens = Vec::new();
 
-      if expr_tokens.iter().any(|t| matches!(t, Token::Identifier(v, _) if *v == "_".to_string())) {
+      if expr_tokens
+        .iter()
+        .any(|t| matches!(t, Token::Identifier(v, _) if *v == "_".to_string()))
+      {
         branch_tokens.extend(tokenize("else"));
         branch_tokens.extend(tokens[start..end].to_vec());
         branches.push((expr_tokens.clone(), branch_tokens));
         continue;
       }
-      
+
       if branches.len() > 0 {
         branch_tokens.extend(tokenize("elseif "));
       } else {
         branch_tokens.extend(tokenize("if "));
       }
 
-      if !expr_tokens.iter().any(|t| matches!(t, Token::Identifier(v, _) if *v == "val".to_string())) {
-        branch_tokens.extend(tokenize("val == "));
+      let iscustom = !expr_tokens
+        .iter()
+        .any(|t| matches!(t, Token::Identifier(v, _) if *v == "val".to_string()));
+      if iscustom {
+        branch_tokens.extend(tokenize("iseq(val, "));
       }
       branch_tokens.extend(expr_tokens.clone());
+      if iscustom {
+        branch_tokens.extend(tokenize(")"));
+      }
       branch_tokens.extend(tokenize(" then "));
       branch_tokens.extend(tokens[start..end].to_vec());
 
       branches.push((expr_tokens.clone(), branch_tokens));
-
     }
 
     self.process_macros(
       {
         let mut v: Vec<Token> = Vec::new();
-        v.extend(tokenize("(function(val)\n"));
+        let mut is_returned = false;
+        v.extend(tokenize("(function(val)\nlocal iseq = function(first, second)\n  if first and type(first) == \"table\" and first.__is then\n    return first.__is(first, second) or first == second\n  else\n    return first == second\n  end\nend\n"));
         for (_, value) in branches.iter() {
+          if !is_returned {
+            is_returned = value
+              .iter()
+              .any(|t| matches!(t, Token::Identifier(s, _) if s == "return"));
+          }
           v.extend(value.clone());
         }
         v.extend(tokenize("end\n"));
         v.extend(tokenize("end)("));
         v.extend(value.clone());
         v.extend(tokenize(")"));
-        if !v.iter().any(|t| matches!(t, Token::Identifier(s, _) if s == "return")) {
-          v.insert(0, Token::Symbol(";".into(), 0));
+        if !is_returned
+        {
+          v.insert(0, Token::Whitespace("\n".into(), 0));
+          v.insert(0, Token::Symbol("do".into(), 0));
+          v.extend(vec![Token::Whitespace("\n".into(), 0), Token::Symbol("end".into(), 0)]);
         }
         v
       },
@@ -1128,7 +1595,11 @@ impl Compiler {
             if index < args.len() {
               result.extend(args[index].clone());
             } else {
-              panic!("Not enough arguments for macro parameter: ${}", param);
+              if param.starts_with("_") {
+                result.extend(Vec::new());
+              } else {
+                panic!("Not enough arguments for macro parameter: ${}", param);
+              }
             }
           } else {
             panic!("Unknown macro parameter: ${}", param);

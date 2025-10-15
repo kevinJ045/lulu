@@ -4,6 +4,8 @@ use crate::ops;
 use mlua::{Lua, chunk};
 use std::path::PathBuf;
 
+const STD_FILE: &str = include_str!("./builtins/std.lua");
+
 #[derive(Debug, Clone)]
 pub struct LuLib {
   pub bytes: Vec<u8>,
@@ -30,6 +32,7 @@ pub struct Lulu {
   pub args: Vec<String>,
   pub current: Option<PathBuf>,
   pub compiler: Compiler,
+  std: String
 }
 
 impl Lulu {
@@ -37,12 +40,17 @@ impl Lulu {
     let mods = Vec::new();
     let lua = unsafe { Lua::unsafe_new() };
 
+    let mut compiler = Compiler::new(None);
+
+    let std = compiler.compile(STD_FILE, None, None);
+    
     Lulu {
       mods,
       lua,
       args: args.unwrap_or_default(),
       current,
-      compiler: Compiler::new(None),
+      compiler,
+      std
     }
   }
 
@@ -83,97 +91,26 @@ impl Lulu {
       .lua
       .load(
         r#"
-          local embedded = __get_mods__()
-          package.preload = package.preload or {}
-          require_native = require
-          for key, name in pairs(embedded) do
-            package.preload[name] = function()
-              return exec_mod(name)
-            end
+        local embedded = __get_mods__()
+        package.preload = package.preload or {}
+        require_native = require
+        for key, name in pairs(embedded) do
+          package.preload[name] = function()
+            return exec_mod(name)
           end
-
-          function dump_item_into_string(o, indent)
-            indent = indent or 0
-            if type(o) == 'table' then
-              local s = '{\n'
-              for k, v in pairs(o) do
-                s = s .. string.rep('  ', indent + 1) .. tostring(k) .. ' = ' .. dump_item_into_string(v, indent + 1) .. ',\n'
-              end
-              return s .. string.rep('  ', indent) .. '}'
-            else
-              return tostring(o)
-            end
-          end
-
-          function fprint(t)
-            print(dump_item_into_string(t))
-          end
-
-          function namespace(tbl, chunk)
-            chunk = chunk or function() end
-            setfenv(chunk, setmetatable(tbl or {}, { __index = _G }))
-            return chunk(tbl)
-          end
-
-          Future = {}
-          Future.__index = Future
-
-          function Future.new(fn)
-            local self = setmetatable({}, Future)
-            self.co = coroutine.create(fn)
-            self.done = false
-            self.result = nil
-            self.error = nil
-            self.onError = function(e)
-              error(e)
-            end
-            self.onAfter = function(e)
-              return e
-            end
-            return self
-          end
-
-          function Future:poll(...)
-            if self.done then return self.result end
-            local ok, res = coroutine.resume(self.co, ...)
-            if not ok then
-              self.error = res
-              self.done = true
-            end
-            if coroutine.status(self.co) == "dead" then
-              self.done = true
-              self.result = res
-            end
-            return res
-          end
-
-          function Future:await()
-            while not self.done do
-              self:poll()
-            end
-            if self.error then self.onError(self.error) end
-            return self.onAfter(self.result)
-          end
-
-          function Future:after(cb)
-            local olOnAfter = self.onAfter
-            self.onAfter = function(r)
-              return cb(olOnAfter(r))
-            end
-            return self
-          end
-
-          function Future:catch(cb)
-            self.onError = cb
-            return self
-          end
-
-          function async(fn)
-            return Future.new(fn)
-          end
-        "#,
+        end
+        "#
       )
       .exec()?;
+
+    self
+      .lua
+      .load(
+        self.std.clone()
+      )
+      .set_name("std")
+      .exec()?;
+
 
     Ok(())
   }
