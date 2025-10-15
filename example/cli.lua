@@ -1,12 +1,10 @@
--- print(serde.json.encode({
---   "name"
--- }))
--- print(serde.yaml.encode({
---   item = {
---     name = "item\nn"
---   }
--- }))
+class! @register() Example:Base(arg1, arg2), {
+  @log()
+  method(@validated x, y) {
+    print(x, y)
+  }
 
-iprint(re.replace("(^r)(.*)(r$)", "rASSSSr", function(_, g1, _, g2)
-  return f"{g1}sss{g2}"
-end))
+  normal(x, y, z){
+    print(x, y, z)
+  }
+}
