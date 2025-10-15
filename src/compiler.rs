@@ -103,6 +103,14 @@ impl MacroRegistry {
       },
     );
     macros.insert(
+      "spread".to_string(),
+      MacroDefinition {
+        name: "spread".to_string(),
+        params: vec!["name".to_string(), "methods".to_string()],
+        body: tokenize("into(nil)"),
+      },
+    );
+    macros.insert(
       "enum".to_string(),
       MacroDefinition {
         name: "enum".to_string(),
@@ -821,17 +829,17 @@ impl Compiler {
       self.compile_match(args, path, conf)
     } else if macro_name == "class" {
       self.compile_class(args, path, conf)
+    } else if macro_name == "spread" {
+      self.compile_spread(args, path, conf)
     } else if macro_name == "enum" {
       self.compile_enum(args, path, conf)
     } else if macro_name == "import" {
       let mut cargs = args.clone();
-      let vname = get_token_string(&args[0][0]).unwrap();
       let cpath = get_token_string(&args[1][0]).unwrap();
-      let name = std::path::Path::new(cpath)
-        .file_stem()
-        .and_then(|s| Some(s.to_string_lossy().to_string()))
-        .unwrap_or(vname.clone());
+      let name = crate::util::normalize_name(cpath);
 
+      // f = function
+      // idk why i name things weird
       if let Some(f) = self.import {
         f(name.clone(), cpath.clone(), path.clone(), conf.clone());
       };
@@ -864,6 +872,114 @@ impl Compiler {
     i
   }
 
+  fn compile_spread(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
+    if args.len() < 2 {
+      panic!("spread! expects two arguments: variable and pattern");
+    }
+
+    let source_tokens = &args[0];
+    let pattern_tokens = &args[1];
+    let source_name = self.generate_code(source_tokens.clone());
+    let items = self.extract_pattern_items(pattern_tokens);
+
+    let mut lua = String::new();
+    let mut index = 1;
+
+    for (i, item) in items.iter().enumerate() {
+      let trimmed = item.trim();
+
+      // Spread (...something)
+      if trimmed.starts_with("...") {
+        let name = trimmed.trim_start_matches("...");
+        let (start, end) = {
+          let start = index;
+          let end = if i == items.len() - 1 {
+            format!("#{}", source_name)
+          } else {
+            let remaining = items.len() - (i + 1);
+            format!("#{} - {}", source_name, remaining)
+          };
+          (start, end)
+        };
+
+        if name.contains('.') {
+          lua.push_str(&format!(
+            "{} = {{ unpack({}, {}, {}) }}\n",
+            name, source_name, start, end
+          ));
+        } else {
+          lua.push_str(&format!(
+            "local {} = {{ unpack({}, {}, {}) }}\n",
+            name, source_name, start, end
+          ));
+        }
+        index += 1;
+        continue;
+      }
+
+      if trimmed == "_" {
+        index += 1;
+        continue;
+      }
+
+      if trimmed.contains('.') && !trimmed.contains(':') {
+        lua.push_str(&format!("{} = {}[{}]\n", trimmed, source_name, index));
+        index += 1;
+        continue;
+      }
+
+      if let Some(colon_index) = trimmed.find(':') {
+        let (var, prop) = trimmed.split_at(colon_index);
+        let var = var.trim();
+        let prop = prop.trim_start_matches(':').trim();
+        lua.push_str(&format!("local {} = {}.{}\n", var, source_name, prop));
+        continue;
+      }
+
+      if trimmed.starts_with('&') {
+        let var = trimmed.trim_start_matches('&');
+        lua.push_str(&format!("local {} = {}.{}\n", var, source_name, var));
+        continue;
+      }
+
+      lua.push_str(&format!("local {} = {}[{}]\n", trimmed, source_name, index));
+      index += 1;
+    }
+
+    self.process_macros(tokenize(lua.as_str()), path, conf)
+  }
+
+  fn extract_pattern_items(&self, tokens: &[Token]) -> Vec<String> {
+    use Token::*;
+    let mut result = Vec::new();
+    let mut current = std::string::String::new();
+
+    for token in tokens {
+      match token {
+        Comma(_) => {
+          if !current.trim().is_empty() {
+            result.push(current.trim().to_string());
+          }
+          current.clear();
+        }
+        _ => {
+          current.push_str(self.generate_code(vec![token.clone()]).as_str());
+        }
+      }
+    }
+
+    if !current.trim().is_empty() {
+      result.push(current.trim().to_string());
+    }
+
+    result
+  }
+
   fn compile_enum(
     &mut self,
     args: Vec<Vec<Token>>,
@@ -874,7 +990,7 @@ impl Compiler {
       panic!("enum! expects two arguments: name and variants block");
     }
 
-    let name_tokens = &args[0];
+    let name_tokens: &_ = &args[0];
     let variants_tokens = &args[1];
 
     let enum_name = self.generate_code(name_tokens.clone()).trim().to_string();
@@ -907,7 +1023,10 @@ impl Compiler {
     for (vname, args) in &variants {
       if let Some(args) = args {
         // Tuple-like variant (has fields)
-        let args_list = args.join(", ");
+        let mut args_list = args.join(", ");
+        if args_list.ends_with(")") {
+          args_list = args_list[0..args_list.len() - 1].to_string();
+        }
         lua.push_str(&format!(
             "function {enum}.{vname}({args_list})\n  local o = {{}}\n",
             enum = enum_name,
@@ -1047,14 +1166,20 @@ end\n", enum=enum_name));
     path: Option<String>,
     conf: Option<LuluConf>,
   ) -> Vec<Token> {
-    if args.len() < 2 {
-      panic!("Class expects two arguments");
+    if args.len() < 1 {
+      panic!("Class expects atleast a name");
     }
 
     let decl_tokens = &args[0];
-    let block_tokens = &args[1];
+    let block_tokens = if args.len() < 2 {
+      &Vec::new()
+    } else if args.len() > 2 {
+      &args[2]
+    } else {
+      &args[1]
+    };
     let constructor_block = if args.len() > 2 {
-      args[2].clone()
+      args[1].clone()
     } else {
       Vec::new()
     };
@@ -1136,7 +1261,9 @@ end\n", enum=enum_name));
 
     let mut self_assignments = String::new();
     for (i, arg) in constructor_args.iter().enumerate() {
-      self_assignments.push_str(&format!("self.{arg} = args[{}]\n", i + 1, arg = arg));
+      if arg != "_" {
+        self_assignments.push_str(&format!("self.{arg} = args[{}]\n", i + 1, arg = arg));
+      }
     }
 
     let init_line = if let Some(parent) = parent_name.clone() {
@@ -1155,10 +1282,63 @@ end\n", enum=enum_name));
     };
 
     let call_parent = if let Some(parent) = parent_name.clone() {
-      format!("{}.__construct(self, false, ...)", parent)
+      if constructor_block
+        .iter()
+        .any(|x| matches!(x, Token::Identifier(x, _) if x == "super"))
+      {
+        format!(
+          "local super = function(...) {}.__construct(self, false, ...) end",
+          parent
+        )
+      } else {
+        format!("{}.__construct(self, false, ...)", parent)
+      }
     } else {
       "".to_string()
     };
+    let mut constructor_block_str = constructor_block.clone();
+
+    if !constructor_block.is_empty() && matches!(constructor_block[0], Token::LeftParen(_)) {
+      // 1. Extract everything inside ( ... )
+      let mut inner = Vec::new();
+      let mut depth = 0;
+      let mut i = 0;
+
+      while i < constructor_block.len() {
+        match &constructor_block[i] {
+          Token::LeftParen(_) => {
+            depth += 1;
+            if depth > 1 {
+              inner.push(constructor_block[i].clone());
+            }
+          }
+          Token::RightParen(_) => {
+            depth -= 1;
+            if depth == 0 {
+              i += 1;
+              break;
+            } else {
+              inner.push(constructor_block[i].clone());
+            }
+          }
+          _ => {
+            if depth > 0 {
+              inner.push(constructor_block[i].clone());
+            }
+          }
+        }
+        i += 1;
+      }
+
+      let inner_str = self.generate_code(inner);
+
+      let spread_code = format!("spread! args, {{ {} }}", inner_str);
+      let mut spread_tokens = tokenize(&spread_code);
+
+      spread_tokens.extend_from_slice(&constructor_block[i..]);
+
+      constructor_block_str = self.process_macros(spread_tokens, path.clone(), conf.clone());
+    }
 
     let constructor_code = format!(
       r#"
@@ -1172,7 +1352,7 @@ end
 "#,
       name = class_name,
       call_parent = call_parent,
-      constructor_block = self.generate_code(constructor_block),
+      constructor_block = self.generate_code(constructor_block_str),
       assignments = self_assignments
     );
 
@@ -1236,7 +1416,8 @@ setmetatable({name}, {{
               }
               method_decorators.push(decorator_tokens);
             }
-            while i < block_tokens.len() && matches!(block_tokens.get(i), Some(Token::Whitespace(_, _)))
+            while i < block_tokens.len()
+              && matches!(block_tokens.get(i), Some(Token::Whitespace(_, _)))
             {
               i += 1;
             }
@@ -1418,8 +1599,10 @@ setmetatable({name}, {{
       for decorator in decorators.iter().rev() {
         let decorator_str = self.generate_code(decorator.clone());
         let method_name_str = self.generate_code(vec![name.clone()]);
-        let decorated_method =
-          format!("{0}.{1} = {2}({0}, {0}.{1})\n", class_name, method_name_str, decorator_str);
+        let decorated_method = format!(
+          "{0}.{1} = {2}({0}, {0}.{1})\n",
+          class_name, method_name_str, decorator_str
+        );
         tokens.extend(tokenize(&decorated_method));
       }
     }

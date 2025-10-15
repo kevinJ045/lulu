@@ -1,0 +1,124 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code&family=Inter:wght@400;700&display=swap');
+
+:root {
+  --search-input-border-color: var(--mauve);
+  --mono-tint2: var(--mauve);
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+
+.sidebar-nav>ul>li>a {
+  font-size: 1em;
+  text-decoration: none;
+}
+
+.sidebar-nav>ul>li>a:hover {
+  text-decoration: none;
+}
+
+.sidebar-nav>ul>li.active>a {
+  text-decoration: none;
+  font-weight: bold;
+}
+
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+}
+
+a {
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.markdown-section code {
+  font-family: 'Fira Code', monospace;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+}
+
+/* Code Block Styling */
+.markdown-section pre {
+  font-family: 'Fira Code', monospace;
+  border-radius: 8px;
+  padding: 1.5rem 1.5rem 1.5rem 1.5rem;
+  position: relative;
+  margin: 1.5em 0;
+  overflow: hidden;
+}
+
+/* Code block header */
+.markdown-section pre[data-lang]::before {
+  content: ' ';
+  position: relative;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2rem;
+  border-radius: 8px 8px 0 0;
+  padding: 0 1rem;
+  font-size: 0.9em;
+  line-height: 2rem;
+  font-family: 'Inter', sans-serif;
+  text-transform: uppercase;
+}
+
+/* Window Controls */
+.markdown-section pre[data-lang]::after {
+  content: ' ';
+  position: absolute;
+  top: 0.7rem;
+  left: 1rem;
+  width: 12px;
+  height: 12px;
+  background-color: var(--red);
+  border-radius: 50%;
+  box-shadow: 20px 0 0 var(--yellow), 40px 0 0 var(--green);
+}
+
+.markdown-section pre[data-lang] {
+  padding-left: 20px;
+  padding-right: 20px;
+  padding-bottom: 10px;
+  /* Make space for controls */
+}
+
+.markdown-section pre[data-lang] code {
+  padding: 0;
+}
+
+/* Docsify Search Plugin */
+.search input {
+  border: 1px solid var(--border) !important;
+}
+
+.search .results-panel .matching-post h2 {
+  border: none;
+}
+
+.markdown-section blockquote {
+  background-color: var(--mantle);
+}
+
+.search .input-wrap {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 10px;
+  margin: 10px;
+}
+
+.search .input-wrap input {
+  border-radius: 25px;
+}
