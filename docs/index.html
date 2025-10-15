@@ -9,7 +9,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300..700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <!-- Prism.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-lua.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://prismjs.catppuccin.com/mocha.css" />
 
   <link rel="icon" href="https://raw.githubusercontent.com/kevinj045/lulu/main/assets/logo.png">
 
@@ -53,278 +58,486 @@
 
     * {
       box-sizing: border-box;
+      scrollbar-width: thin;
+      scrollbar-color: var(--surface1) var(--mantle);
     }
 
     body {
       background-color: var(--sidebar-bg);
       color: var(--foreground);
       font-family: 'Fira Code', monospace;
-      display: flex;
       margin: 0;
-      height: 100dvh;
-      overflow: hidden;
-      padding: 1rem;
-      gap: 1rem;
+      font-size: 14px;
     }
 
-    .sidebar,
-    .content {
+    .container {
+      display: flex;
+      max-width: 1200px;
+      margin: 0 auto;
+      gap: 2rem;
+      padding: 2rem;
+      transition: max-width 0.3s ease-in-out;
+    }
+
+    .text-panel {
+      width: 50%;
+      padding-top: 20vh;
+      transition: width 0.3s ease-in-out;
+    }
+
+    .text-section {
+      padding-bottom: 80vh;
+      opacity: 0.3;
+      transition: opacity 0.3s ease-in-out;
+    }
+
+    .text-section.is-active {
+      opacity: 1;
+    }
+
+    .editor-panel {
+      width: 50%;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      transition: width 0.3s ease-in-out;
+    }
+
+    .editor-window {
       background-color: var(--background);
-      border: 1px solid var(--border);
-      padding: 1.5rem;
-      position: relative;
+      /* border: 1px solid var(--border); */
       border-radius: 8px;
-    }
-
-    .sidebar {
-      width: 250px;
+      width: 100%;
+      height: 80vh;
       display: flex;
       flex-direction: column;
-      padding-top: 2rem;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
     }
 
-
-    @media screen and (max-width: 900px) {
-      body {
-        flex-direction: column;
-        height: auto;
-        overflow: auto;
-      }
-      .sidebar {
-        width: auto;
-      }
+    .editor-header {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem;
+      background-color: var(--crust);
+      /* border-bottom: 1px solid var(--border); */
+    }
+    
+    .window-controls {
+      display: flex;
+      padding: 0 0.5rem;
     }
 
-    .content {
+    .window-controls .control {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+    .window-controls .control:nth-child(1) { background-color: var(--red); }
+    .window-controls .control:nth-child(2) { background-color: var(--yellow); }
+    .window-controls .control:nth-child(3) { background-color: var(--green); }
+
+    .tabs {
+      display: flex;
+      flex-grow: 1;
+      overflow-x: scroll;
+    }
+
+    .tab {
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      /* border-right: 1px solid var(--border); */
+      background-color: var(--mantle);
+      border-radius: 5px;
+      color: var(--subtext0);
+      transition: all 0.2s;
+    }
+
+    .tab:hover {
+      background-color: var(--surface0);
+    }
+
+    .tab.active {
+      background-color: var(--background);
+      color: var(--text);
+    }
+
+    .editor-body {
+      flex-grow: 1;
+      position: relative;
+    }
+
+    .code-block {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+      margin: 0;
+      overflow: auto;
+    }
+
+    .code-block.active {
+      opacity: 1;
+      visibility: visible;
+    }
+    
+    .code-block pre {
+      margin: 0;
+      padding: 10px;
+      height: 100%;
+    }
+
+    .code-block pre[class*="language-"] {
+      border: none;
+      border-radius: 0;
+      height: 100%;
+    }
+
+    .editor-console {
+      /* border-top: 1px solid var(--border); */
+      height: 100px;
+      background-color: var(--mantle);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .console-header {
+      padding: 0.5rem 1rem;
+      background: var(--crust);
+      color: var(--accent);
+      /* border-bottom: 1px solid var(--border); */
+    }
+
+    .console-body {
+      padding: 0.5rem 1rem;
       flex-grow: 1;
       overflow-y: auto;
-      padding-top: 2rem;
+      font-size: 0.9em;
     }
-
-    .sidebar::before,
-    .content::before {
-      content: attr(data-title);
-      position: absolute;
-      top: -1px;
-      left: 1rem;
-      background: var(--background);
-      padding: 0 0.5rem;
-      color: var(--accent);
-      font-weight: bold;
-      font-size: 1.1em;
-      border-left: 1px solid var(--border);
-      border-right: 1px solid var(--border);
-    }
-
-    .content::before {
-      content: attr(data-title) ' █';
-      animation: blink 1s step-end infinite;
-    }
-
-    @keyframes blink {
-      50% {
-        color: transparent;
-      }
-    }
-
-    .sidebar ul {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      overflow-y: auto;
-    }
-
-    .sidebar li a {
-      color: var(--foreground);
-      text-decoration: none;
-      display: block;
-      padding: 8px 10px;
-      border-radius: 4px;
-      transition: background-color 0.2s;
-    }
-
-    .sidebar li a:hover {
-      background-color: var(--hover);
-    }
-
-    .sidebar li a.h1 {
-      font-weight: bold;
-      color: var(--accent);
-    }
-
-    .sidebar li a.h2 {
-      padding-left: 20px;
-    }
-
-    .sidebar li a.h3 {
-      padding-left: 40px;
-      font-style: italic;
-    }
-
-    .content h1,
-    .content h2,
-    .content h3,
-    .content h4,
-    .content h5,
-    .content h6 {
+    
+    h1, h2, h3, h4, h5, h6 {
       color: var(--accent);
       border-bottom: 1px solid var(--border);
       padding-bottom: 5px;
     }
 
-    .content a {
-      color: var(--accent);
-    }
-
-    .content code {
+    a { color: var(--accent); }
+    
+    code:not([class*="language-"]) {
       background-color: var(--sidebar-bg);
       padding: 2px 5px;
       border-radius: 4px;
-    }
-
-    .content pre {
-      background-color: var(--sidebar-bg);
-      border: 1px solid var(--border);
-      padding: 0;
-      border-radius: 5px;
-      overflow: hidden;
-    }
-
-    .content pre code.hljs {
-      padding: 1em;
-      display: block;
-      overflow-x: auto;
-    }
-
-    .hljs {
-      background: var(--sidebar-bg);
-      color: var(--text);
-    }
-
-    .hljs-keyword {
       color: var(--mauve);
     }
 
-    .hljs-literal {
-      color: var(--peach);
+    pre[class*="language-"] {
+      padding: 10px;
+      overflow: scroll;
+      background: var(--background) !important;
+      /* border: 1px solid var(--border); */
+      border-radius: 5px;
+      position: relative;
     }
 
-    .hljs-symbol,
-    .hljs-bullet,
-    .hljs-link {
-      color: var(--pink);
+    .expand-editor-btn {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background-color: var(--surface0);
+      color: var(--text);
+      /* border: 1px solid var(--border); */
+      border-radius: 4px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.2s;
     }
 
-    .hljs-string {
-      color: var(--green);
+    pre:hover .expand-editor-btn {
+      opacity: 1;
     }
 
-    .hljs-title,
-    .hljs-name,
-    .hljs-section {
-      color: var(--yellow);
+    /* Editor state toggling */
+    .editor-hidden .editor-panel {
+      display: none;
     }
 
-    .hljs-tag,
-    .hljs-attr {
-      color: var(--lavender);
+    .editor-hidden .text-panel {
+      width: 100%;
+    }
+    
+    .editor-hidden .container {
+        max-width: 800px;
     }
 
-    .hljs-attribute {
-      color: var(--peach);
+    .editor-hidden .text-section {
+      opacity: 1;
+      padding-bottom: 2rem;
     }
 
-    .hljs-variable {
-      color: var(--peach);
+    .editor-view-active .inline-lua-block {
+      display: none;
     }
 
-    .hljs-template-variable {
-      color: var(--pink);
-    }
-
-    .hljs-comment,
-    .hljs-quote,
-    .hljs-deletion {
-      color: var(--overlay0);
-      font-style: italic;
-    }
-
-    .hljs-meta {
-      color: var(--red);
-    }
-
-    .hljs-number {
-      color: var(--peach);
-    }
-
-    .hljs-regexp {
-      color: var(--sky);
-    }
-
-    .hljs-function>.hljs-title {
-      color: var(--blue);
-    }
-
-    .hljs-params {
-      color: var(--peach);
-    }
-
-    .hljs-built_in {
-      color: var(--sky);
-    }
-
-    .hljs-type {
-      color: var(--yellow);
-    }
-
-    .hljs-strong {
-      font-weight: bold;
-    }
-
-    .hljs-emphasis {
-      font-style: italic;
-    }
-
-    .hljs-addition {
-      color: var(--green);
+    @media screen and (max-width: 900px) {
+      .text-panel {
+        padding-top: 2rem;
+      }
     }
   </style>
 </head>
 
 <body>
-  <div class="sidebar" data-title="[ Topics ]">
-    <ul id="topics-list"></ul>
-  </div>
-  <div class="content" id="content" data-title="[ Output ]">
-  </div>
+  <main class="container editor-view-active" id="main-container">
+    <div class="text-panel" id="text-panel">
+      <!-- Content sections will be injected here -->
+    </div>
+    <div class="editor-panel">
+      <div class="editor-window">
+        <div class="editor-header">
+          <div class="window-controls">
+            <span class="control" id="close-editor-btn"></span><span class="control"></span><span class="control"></span>
+          </div>
+          <div class="tabs" id="tabs"></div>
+        </div>
+        <div class="editor-body" id="editor-body"></div>
+        <div class="editor-console">
+          <div class="console-header">> Output</div>
+          <div class="console-body" id="console-body">
+            Ready.
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const contentDiv = document.getElementById('content');
-      const topicsList = document.getElementById('topics-list');
+      const mainContainer = document.getElementById('main-container');
+      const textPanel = document.getElementById('text-panel');
+      const tabsContainer = document.getElementById('tabs');
+      const editorBody = document.getElementById('editor-body');
+      const consoleBody = document.getElementById('console-body');
+      const closeEditorBtn = document.getElementById('close-editor-btn');
+
+      const sectionsData = new Map();
+      let activeSection = null;
+      let intersectionObserver = null;
+
+      function setEditorVisible(visible) {
+        if (visible) {
+          mainContainer.classList.remove('editor-hidden');
+          mainContainer.classList.add('editor-view-active');
+          setupIntersectionObserver();
+          
+          const currentActive = [...sectionsData.keys()].find(sec => sec.classList.contains('is-active'));
+          if(currentActive) {
+            updateEditor(currentActive);
+          } else {
+            const firstSection = document.querySelector('.text-section');
+            if(firstSection) updateEditor(firstSection);
+          }
+
+        } else {
+          mainContainer.classList.add('editor-hidden');
+          mainContainer.classList.remove('editor-view-active');
+          if (intersectionObserver) {
+            intersectionObserver.disconnect();
+            intersectionObserver = null;
+          }
+          document.querySelectorAll('.text-section').forEach(s => s.classList.add('is-active'));
+        }
+      }
+
+      function updateEditor(section) {
+        if (!section || (section === activeSection && !mainContainer.classList.contains('editor-hidden'))) return;
+        activeSection = section;
+
+        tabsContainer.innerHTML = '';
+        editorBody.innerHTML = '';
+        consoleBody.innerHTML = 'Ready.';
+
+        const { codeBlocks } = sectionsData.get(section);
+
+        if (codeBlocks.length === 0) {
+            tabsContainer.innerHTML = '<div class="tab">No code</div>';
+            return;
+        }
+
+        codeBlocks.forEach((block, index) => {
+          const tab = document.createElement('div');
+          tab.className = 'tab';
+          block = {...block};
+          
+          let title = block.lang ? `${block.lang.split("=")[0] || 'file'}.${index + 1}` : `file.${index + 1}`;
+          if(block.lang) {
+            const [lang, fname] = block.lang.split("=");
+            title = fname || `${lang}.${index + 1}`;
+          }
+          
+          if (block.code.match(/^--- (.+)\.lua/gm)) {
+            title = block.code.match(/^--- ((.+)\.lua)/)[1];
+            block.code = block.code.replace(/^--- ((.+)\.lua)/, "").trim()
+          }
+          
+          tab.textContent = title;
+          tab.dataset.index = index;
+          if (index === 0) tab.classList.add('active');
+          
+          if(block.code.match(/--- \[OUTPUT\]([\s\S\w\W]+)--- \[\/OUTPUT\]$/)){
+            let output = block.code.match(/--- \[OUTPUT\]([\s\S\w\W]+)--- \[\/OUTPUT\]$/)[1];
+            tab.dataset.output = output;
+            if (index === 0) {
+              consoleBody.innerText = output;
+            }
+            block.code = block.code.replace(/--- \[OUTPUT\]([\s\S\w\W]+)--- \[\/OUTPUT\]$/, '');
+          }
+          tabsContainer.appendChild(tab);
+
+          const codeBlockEl = document.createElement('div');
+          codeBlockEl.className = 'code-block';
+          codeBlockEl.dataset.index = index;
+          if (index === 0) codeBlockEl.classList.add('active');
+          
+          const pre = document.createElement('pre');
+          const code = document.createElement('code');
+          const lang = block.lang ? block.lang.split("=")[0] : 'lua';
+          pre.className = `language-${lang}`;
+          code.className = `language-${lang}`;
+          code.textContent = block.code;
+          
+          pre.appendChild(code);
+          codeBlockEl.appendChild(pre);
+          editorBody.appendChild(codeBlockEl);
+          
+          Prism.highlightElement(code);
+        });
+      }
+
+      tabsContainer.addEventListener('click', (e) => {
+        if (!e.target.classList.contains('tab')) return;
+
+        const activeTab = tabsContainer.querySelector('.tab.active');
+        if(activeTab) activeTab.classList.remove('active');
+        e.target.classList.add('active');
+
+        const activeCode = editorBody.querySelector('.code-block.active');
+        if(activeCode) activeCode.classList.remove('active');
+        
+        const index = e.target.dataset.index;
+        const newActiveCode = editorBody.querySelector(`.code-block[data-index="${index}"]`);
+        if(newActiveCode) newActiveCode.classList.add('active');
+
+        if(e.target.dataset.output){
+          consoleBody.innerText = e.target.dataset.output;
+        } else {
+          consoleBody.innerText = "Ready.";
+        }
+      });
+
+      function buildSections(tokens) {
+        let currentSection = null;
+        let sectionTokens = [];
+
+        tokens.forEach(token => {
+          if (token.type === 'heading' && token.depth <= 2) {
+            if (currentSection) {
+              processSection(currentSection, sectionTokens);
+            }
+            currentSection = document.createElement('div');
+            currentSection.className = 'text-section';
+            textPanel.appendChild(currentSection);
+            sectionTokens = [];
+          }
+          if(currentSection) {
+            sectionTokens.push(token);
+          }
+        });
+        if (currentSection) {
+          processSection(currentSection, sectionTokens);
+        }
+      }
+
+      function processSection(sectionEl, tokens) {
+        const codeBlocks = [];
+        
+        const tempRenderer = new marked.Renderer();
+        tempRenderer.code = ({text: code, lang}) => {
+          const langName = lang ? lang.split('=')[0] : '';
+
+          if (langName === 'lua' && !code.startsWith("--- keep")) {
+            codeBlocks.push({ lang, code });
+            
+            const highlightedCode = Prism.highlight(code, Prism.languages.lua, 'lua');
+            return `<div class="inline-lua-block">
+              <pre class="language-lua"><code class="language-lua">${highlightedCode}</code><button class="expand-editor-btn">Open in Editor</button></pre>
+            </div>`;
+          }
+          
+          const finalCode = code.replace(/^--- keep/, '').trim();
+          const grammar = Prism.languages[langName] || Prism.languages.clike;
+          const highlightedCode = Prism.highlight(finalCode, grammar, langName);
+          return `<pre class="language-${langName}"><code class="language-${langName}">${highlightedCode}</code></pre>`;
+        };
+
+        marked.use({ renderer: tempRenderer });
+        sectionEl.innerHTML = marked.parser(tokens);
+        sectionsData.set(sectionEl, { codeBlocks });
+        marked.use({ renderer: new marked.Renderer() }); // Reset to default
+      }
+
+      function setupIntersectionObserver() {
+        if (intersectionObserver) intersectionObserver.disconnect();
+
+        intersectionObserver = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              const visibleSection = entry.target;
+              updateEditor(visibleSection);
+              document.querySelectorAll('.text-section').forEach(s => s.classList.remove('is-active'));
+              visibleSection.classList.add('is-active');
+            }
+          });
+        }, { rootMargin: "-50% 0px -50% 0px", threshold: 0 });
+
+        const sections = document.querySelectorAll('.text-section');
+        if (sections.length > 0) {
+          sections.forEach(section => intersectionObserver.observe(section));
+        }
+      }
 
       fetch('docs.md')
         .then(response => response.text())
         .then(text => {
-          contentDiv.innerHTML = marked.parse(text, { breaks: true });
+          const tokens = marked.lexer(text);
+          buildSections(tokens);
 
-          const headings = contentDiv.querySelectorAll('h1, h2, h3');
-          headings.forEach(heading => {
-            const li = document.createElement('li');
-            const a = document.createElement('a');
-
-            const id = heading.textContent.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^\w-]+/g, '');
-            heading.id = id;
-
-            a.textContent = heading.textContent;
-            a.href = `#${id}`;
-            a.classList.add(heading.tagName.toLowerCase());
-
-            li.appendChild(a);
-            topicsList.appendChild(li);
+          closeEditorBtn.addEventListener('click', () => setEditorVisible(false));
+          textPanel.addEventListener('click', (e) => {
+            if (e.target.classList.contains('expand-editor-btn')) {
+              setEditorVisible(true);
+            }
           });
 
-          hljs.highlightAll();
+          if (window.matchMedia("(max-width: 900px)").matches) {
+            setEditorVisible(false);
+          } else {
+            setEditorVisible(true);
+            const firstSection = document.querySelector('.text-section');
+            if (firstSection) {
+              updateEditor(firstSection);
+              firstSection.classList.add('is-active');
+            }
+          }
         });
     });
   </script>

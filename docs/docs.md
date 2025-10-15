@@ -43,8 +43,9 @@ your-project/
         └── package1.dylib # macOS
 ```
 
-Here's a basic structure for the `lulu.conf.lua`.
 ```lua
+--- lulu.conf.lua
+--- Here's a basic structure for the `lulu.conf.lua`.
 manifest = {
   name = "project_name",
   version = "1.0.0",
@@ -72,6 +73,7 @@ The lulu config or `lulu.conf.lua` is the entry for your project, it tells lulu 
 The `manifest` field is required, and should hold at least the name of the project.
 **Example**: 
 ```lua
+--- keep
 manifest = {
   name = "project_name",
   version = "1.0.0",
@@ -86,6 +88,7 @@ As of now, other than the name, the rest of the attributes remain unused inside 
 The `mods` field is also another very required field. It tells lulu which files to add to the lua bytecode bundle.
 **Example**: 
 ```lua
+--- keep
 mods = {
   main = "main.lua",
   utils = "src/utils.lua"
@@ -102,6 +105,7 @@ The `fetch` field tells lulu, when loaded from github, that this github reposito
 
 **Example**: 
 ```lua
+--- keep
 -- this will fetch the code and build the project from cache
 fetch = "code"
 -- this will download a `.lulib` from the internet and store 
@@ -123,6 +127,7 @@ The `dependencies` field basically tells lulu to download and/or build these url
 
 **Example**: 
 ```lua
+--- keep
 dependencies = {
   -- From github
   "github:username/repo",
@@ -177,6 +182,7 @@ The `include` field tells lulu to include the specified `.lulib`s in your bundle
 
 **Example**: 
 ```lua
+--- keep
 include = {
   "./path/to/lib.lulib",
   "@libname" -- which will be looked up in 
@@ -191,6 +197,8 @@ include = {
 Building your `.lua` files into one bundle is the main goal of `lulu`. And you can do so either by running the `lulu bundle` command or specifiying the `build` field in your `lulu.conf.lua`. The function runs inside the build environment, where helper functions like `resolve_dependencies` and `bundle_main` are globally available.
 **Example**: 
 ```lua
+--- lulu.conf.lua
+--- Here's how the build field works
 build = function()
   resolve_dependencies() -- Resolves the dependencies before building
 
@@ -224,7 +232,14 @@ build = function()
   bundle_main("main.lua", true) -- bundles into .lulib
 
   -- more funtions coming soon
+
 end
+
+--- [OUTPUT]
+$ lulu build .
+Resolving dependencies for /path/to/project
+$
+--- [/OUTPUT]
 ```
 #### Building with CLI
 ```bash
@@ -241,12 +256,14 @@ lulu bundle ./init.lua path/to/lib.lulib # the .lulib is important
 ## Require
 There is a custom require in lulu, for example if you have included a `.lulib` as mentioned above, then you can only import the modules from there as:
 ```lua
+--- keep
 local something = require("project_name/init") -- namespace is the project name, init or anything else works
 local something_util = require("project_name/util")
 ```
 
 If in the same project, you can only call the mod name as:
 ```lua
+--- keep
 local utils = require("utils")
 ```
 
@@ -258,6 +275,7 @@ Here's a simple diagram to show how it works overall:
 ### Require Cached
 You can also require URLs directly and it would import directly from the cache.
 ```lua
+--- keep
 local lib = require_cached("github:username/repo")
 ```
 
@@ -280,6 +298,7 @@ This macro is like compiling a portion of code conditionally, for example if you
 
 **OS**:
 ```lua
+--- cfg.lua
 cfg! OS, {
   linux {
     print("This will only exist on linux")
@@ -297,11 +316,10 @@ print(cfg! OS, {
     "This will only print on windows"
   }
 })
-```
 
-**Custom Values**:
-You can also look for environment variables with `cfg!`, and here is how:
-```lua
+--- Custom Values:
+--- You can also look for environment variables with `cfg!`, and here is how:
+
 cfg! MY_ENV_VAR, {
   print("It is defined")
 }
@@ -325,14 +343,22 @@ cfg! MY_ENV_VAR, {
 }, { -- optional if undefined block
   print("it is not defined")
 }
-```
 
-**Setting values**:
-You can set env values as such at compile time:
-```lua
+
+--- Setting values:
+--- You can set env values as such at compile time:
+
 cfg! set, {
   MY_VAR = SOMETHING
 }
+
+
+--- [OUTPUT]
+This will only exist on linux
+This will only print on linux
+Not defined
+iy is not defined
+--- [/OUTPUT]
 ```
 
 ### `match!` 
@@ -341,6 +367,7 @@ cfg! set, {
 The `match!` macro lets you do a quick `switch` statement. But it also lets you check values in however condition you want.
 
 ```lua
+--- match.lua
 match! value, {
   "some-value" {
     print("this happens if it is some-value")
@@ -356,10 +383,10 @@ match! value, {
     ...
   }
 }
-```
 
-If you would like to use the `match!` macro as a value, you *must* use the `return` keyword as such:
-```lua
+--- If you would like to use the match! macro as a value,
+--- you must use the return keyword as such:
+
 local some_dynamic_value = match! value, {
   "case 1" {
     return "something"
@@ -376,6 +403,7 @@ local some_dynamic_value = match! value, {
 
 This is a simple macro i made as a test, it basically lets you do for loops but with less code:
 ```lua
+--- for_each.lua
 for_each! item, items, {
   print(item)
 }
@@ -390,6 +418,7 @@ end
 
 Much like the [`for_each!`](#for_each) macro, but for pairs.
 ```lua
+--- for_pairs.lua
 for_pairs! key, value, items, {
   print(key, "=", value)
 }
@@ -404,6 +433,7 @@ end
 
 Basically introduces `JSX` into lua, but remember it might have issues, it's still experimental. This will require you to have a function called `lml_create`.
 ```lua
+--- lml.lua
 local my_table = lml! {
   <table id="mytable">
     {
@@ -413,11 +443,9 @@ local my_table = lml! {
     }
   </table>
 }
-```
-This macro rewrites the whole block into valid lua code(or at least should).
+--- This macro rewrites the whole block into valid lua code(or at least should).
 
-Here is a simple example:
-```lua
+--- Here is a simple example:
 local my_button = lml! {
   <box prop={value}>
     <CustomElement />
@@ -442,6 +470,7 @@ lml_create("box", { prop = value },
 This macro lets you add files into the bundle tree at compile time, basically eliminating the need for the [`mods` field](#modules) in your `lulu.conf.lua`.
 
 ```lua
+--- import.lua
 import! utils, { "./utils.lua" }
 import! smn, { "./src/something.lua" }
 -- which will become
@@ -455,6 +484,7 @@ local smn = require("src-something")
 This macro is basically like the `import!` macro, but instead it import files into bytes.
 
 ```lua
+--- include_bytes.lua
 include_bytes! text_bytes, { "./text.txt" }
 print(text_bytes) -- will be the text's bytes
 ```
@@ -466,6 +496,7 @@ print(text_bytes) -- will be the text's bytes
 A simple if statement. 
 
 ```lua
+--- when.lua
 when! x > 5, {
   print("if true")
 }
@@ -482,6 +513,7 @@ when! x > 5, {
 
 A simple macro to repeat a task based on iteration.
 ```lua
+--- repeat_n.lua
 repeat_n! 1, 10, {
   print(i) -- prints from 1 to 10
 }
@@ -492,6 +524,7 @@ repeat_n! 1, 10, {
 
 A simple try-catch statement.
 ```lua
+--- try_catch.lua
 try_catch! {
   -- the try block
   error("some_error")
@@ -507,6 +540,7 @@ try_catch! {
 
 Checks for a condition then throws an error
 ```lua
+--- guard.lua
 guard! {
   -- has to be true, or else throws error
   is_allowed(user, page)
@@ -520,6 +554,7 @@ guard! {
 
 Creates enums that can be used with [`match!`](#match)
 ```lua
+--- enum.lua
 enum! Something, {
   Variant(content)
   EmptyVariant
@@ -576,6 +611,7 @@ print(something.unwrap())
 
 Creates a simple class
 ```lua
+--- class.lua
 -- simple usecase
 class! Person(name), {
   speak(){
@@ -642,13 +678,9 @@ local myCat = Cat("Mustard", "thick")
 
 myCat:walk()
 myCat:speak()
-```
 
-### `class!` Decorators
-Experimental class decorators to add a little bit of sugar to `lua`.
 
-```lua
---- Simple example:
+--- Class Decorators:
 class!
 @Meta({ author = "Makano", version = 1.0 })
 @Register()
@@ -758,6 +790,7 @@ This macro is special. More about it at [testing](#testing).
 
 To define macros, you can do as such:
 ```lua
+--- custom_macros.lua
 macro {
   add_numbers ($num1, $num2, $_num3) { -- parameters with _ at the start are optional
     $num1 + $num2
@@ -778,6 +811,8 @@ add_numbers! { 1 }, { 2 }
 #### Exporting macros:
 You can export macros by the `macros` field in your `lulu.conf.lua` as such:
 ```lua
+--- lulu.conf.lua
+--- How to export macros:
 macros = [[
 macro {
   hello ($something) {
@@ -809,6 +844,7 @@ Lulu introduces a bunch of custom functions and globals. This environment is *sa
 
 ### Module specific environment
 ```lua
+--- env.lua
 mod -- the current mod info, like mod name, mod config and all, 
 ---
 mod.name -- the mod name
@@ -828,6 +864,7 @@ end)
 
 ### Global environment
 ```lua
+--- globals.lua
 -- process
 argv -- the arguments passed to the current executable
 exit(1 | 0) -- exits the program
@@ -890,6 +927,7 @@ You can make `Vecs` with either `vec!` macro or just `Vec({ lua_table_here })`.
 - If you make it with `vec!`, you can access the properties as `.`, like `.push()`, `.insert()`, ...
 - If you make it with `Vec({..})`, you can access the properties as `:`, like `:push()`, `:insert()`, ...
 ```lua
+--- vec.lua
 local vec = vec! {
   1, 2, 3, 4
 } -- or
@@ -958,6 +996,7 @@ Simple imlementations of `Maps` and `Sets`.
 - `WeakMap` inherits `Map`
 - `WeakSet` inherits `Set`
 ```lua
+--- map_set.lua
 --- Maps ---
   local map = Map():into()
   local weakmap = WeakMap():into()
@@ -997,6 +1036,7 @@ Simple imlementations of `Maps` and `Sets`.
 #### `HashMap` and `HashSet`
 `HashMap` and `HashSet` implementations made in rust. These two can not be cloned.
 ```lua
+--- hashmap_set.lua
 --- HashMap ---
 local map = HashMap()
 
@@ -1023,6 +1063,7 @@ Lulu has a few sugar sprinkled to make lua tastier. Like:
 ### Pointers
 These pointers are simulated (table references), therefore you can't really pass them to ffi without dereferencing.
 ```lua
+--- pointers.lua
 local value = 1
 local ptr_to_value = &value -- or you can do ptr_of(whatever)
 print(ptr_to_value) -- mem address
@@ -1034,6 +1075,7 @@ print(ptr_value)
 ### String Format
 This is preprocessed at compile time by Lulu, not a native Lua syntax.
 ```lua
+--- formatting.lua
 local something = "string or whatever"
 local myString = f"the string is: {something}"
 -- translates to
@@ -1043,6 +1085,7 @@ local myString = "the string is" .. something
 ## Testing
 Lulu comes with a simple system for testing. You can write tests as follows:
 ```lua
+--- test.lua
 test! {
   addition {
     -- assert failures are automatically caught and reported by the macro
