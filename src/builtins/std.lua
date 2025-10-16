@@ -8,7 +8,9 @@ function dump_item_into_string(o, indent)
   if type(o) == 'table' then
     local s = '{\n'
     for k, v in pairs(o) do
-      s = s .. string.rep('  ', indent + 1) .. tostring(k) .. ' = ' .. dump_item_into_string(v, indent + 1) .. ',\n'
+      if k:sub(1, 2) ~= "__" then
+        s = s .. string.rep('  ', indent + 1) .. tostring(k) .. ' = ' .. dump_item_into_string(v, indent + 1) .. ',\n'
+      end        
     end
     return s .. string.rep('  ', indent) .. '}'
   else
@@ -33,6 +35,71 @@ function namespace(tbl, chunk)
   setfenv(chunk, setmetatable(tbl or {}, { __index = _G }))
   return chunk(tbl)
 end
+
+function make_class(class_raw, parent)
+  local class = class_raw
+  class.__index = class
+  local inits = {}
+
+  function class:__call_init(...)
+    for _, fn in ipairs(inits) do
+      fn(self, ...)
+    end
+  end
+
+  local class_meta = {
+    __call = function(cls, ...)
+      local self = setmetatable({}, cls)
+      self.__class = cls
+      if self.__construct then self:__construct(true, ...) end
+      return self
+    end,
+
+    __newindex = function(t, k, v)
+      if k == "init" and type(v) == "function" then
+        table.insert(inits, v)
+      else
+        rawset(t, k, v)
+      end
+    end,
+  }
+
+  if parent then
+    class_meta.__index = parent
+    class_meta.__parent = parent
+  end
+
+  setmetatable(class, class_meta)
+  
+  return class
+end
+
+function iseq(first, second)
+  local result = first == second
+  if result then return result end
+
+  if first and type(first) == "table" and first.__is and first.__is(first, second) then
+    return true
+  end
+  
+  if instanceof(first, second) then
+    return true
+  end
+
+  return result
+end
+
+function instanceof(obj, class)
+  local cls = obj.__class
+  while cls do
+    if cls == class then
+      return true
+    end
+    cls = getmetatable(cls) and getmetatable(cls).__parent
+  end
+  return false
+end
+
 
 Future = {}
 Future.__index = Future
@@ -360,7 +427,7 @@ class! String:Into, {
   }
 }
 
-class! Set, {
+class! Set:Into, {
   init(items){
     self.items = {}
     if type(items) == "table" then

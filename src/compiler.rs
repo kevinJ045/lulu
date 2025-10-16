@@ -1160,6 +1160,47 @@ end\n", enum=enum_name));
     self.process_macros(tokenized, path, conf)
   }
 
+  fn capture_until_comma(&mut self, tokens: &[Token], start: usize) -> (Vec<Token>, usize) {
+    let mut out = Vec::new();
+    let mut i = start;
+    let mut paren = 0;
+    let mut brace = 0;
+
+    while i < tokens.len() {
+      match &tokens[i] {
+        Token::LeftParen(_) => {
+          paren += 1;
+          out.push(tokens[i].clone());
+        }
+        Token::RightParen(_) => {
+          if paren > 0 {
+            paren -= 1;
+            out.push(tokens[i].clone());
+          } else {
+            break;
+          }
+        }
+        Token::LeftBrace(_) => {
+          brace += 1;
+          out.push(tokens[i].clone());
+        }
+        Token::RightBrace(_) => {
+          if brace > 0 {
+            brace -= 1;
+            out.push(tokens[i].clone());
+          } else {
+            break;
+          }
+        }
+        Token::Comma(_) if paren == 0 && brace == 0 => break,
+        _ => out.push(tokens[i].clone()),
+      }
+      i += 1;
+    }
+
+    (out, i)
+  }
+
   fn compile_class(
     &mut self,
     args: Vec<Vec<Token>>,
@@ -1267,16 +1308,13 @@ end\n", enum=enum_name));
     }
 
     let init_line = if let Some(parent) = parent_name.clone() {
-      format!(
-        "{} = setmetatable({{}}, {{ __index = {} }})",
-        class_name, parent
-      )
+      format!("setmetatable({{}}, {{ __index = {} }})", parent)
     } else {
-      format!("{} = {{}}", class_name)
+      format!("{{}}")
     };
 
     let index_parent = if let Some(parent) = parent_name.clone() {
-      format!("__index = {},", parent)
+      format!(", {}", parent)
     } else {
       "".to_string()
     };
@@ -1347,7 +1385,7 @@ function {name}:__construct(is_first, ...)
   {call_parent}
   {assignments}
   {constructor_block}
-  if self.init and is_first then self:init(...) end
+  if self.__call_init and is_first then self:__call_init(...) end
 end
 "#,
       name = class_name,
@@ -1357,24 +1395,13 @@ end
     );
 
     let lua_code = format!(
-      r#"{init_line}
-{name}.__index = {name}
-
-setmetatable({name}, {{
-  {index_parent}
-  __call = function(cls, ...)
-    local self = setmetatable({{}}, cls)
-    if self.__construct then self:__construct(true, ...) end
-    return self
-  end
-}})
+      r#"{name} = make_class({init_line}{index_parent})
 
 {constructor_code}
-
 "#,
       name = class_name,
-      index_parent = index_parent,
       init_line = init_line,
+      index_parent = index_parent,
       constructor_code = constructor_code
     );
 
@@ -1427,7 +1454,7 @@ setmetatable({name}, {{
         break;
       }
 
-      let (expr_tokens, next_i) = self.capture_expression(block_tokens, i);
+      let (expr_tokens, is_decl, next_i) = self.capture_expression_or_declaration(block_tokens, i);
       if expr_tokens.is_empty() {
         if i < block_tokens.len() {
           panic!(
@@ -1439,6 +1466,36 @@ setmetatable({name}, {{
         }
       }
       i = next_i;
+
+      if is_decl {
+        let field_name = if let Token::Identifier(name, _) = &expr_tokens[0] {
+          name
+        } else {
+          panic!("Expected identifier for field declaration");
+        };
+
+        let mut eq_index = None;
+        for (idx, tok) in expr_tokens.iter().enumerate() {
+          if let Token::Symbol(s, _) = tok {
+            if s == "=" {
+              eq_index = Some(idx);
+              break;
+            }
+          }
+        }
+
+        if let Some(eq_idx) = eq_index {
+          let (value_tokens, idx) = self.capture_until_comma(&block_tokens, i + eq_idx);
+          let value_str = self.generate_code(value_tokens);
+          i = idx + 1;
+          let field_code = format!("{}.{field_name} = {}\n", class_name, value_str);
+          tokens.extend(tokenize(&field_code));
+        } else {
+          panic!("Malformed field declaration, missing '='");
+        }
+
+        continue;
+      }
 
       if let Some(Token::Whitespace(_, _)) = block_tokens.get(i) {
         i += 1;
@@ -1823,6 +1880,47 @@ setmetatable({name}, {{
     }
   }
 
+  fn capture_expression_or_declaration(
+    &mut self,
+    tokens: &[Token],
+    start: usize,
+  ) -> (Vec<Token>, bool, usize) {
+    let mut out = Vec::new();
+    let mut i = start;
+    let mut paren = 0;
+    let mut is_declaration = false;
+
+    while i < tokens.len() {
+      match &tokens[i] {
+        // stop at block start
+        Token::LeftBrace(_) if paren == 0 => break,
+
+        Token::LeftParen(_) => {
+          paren += 1;
+          out.push(tokens[i].clone());
+        }
+        Token::RightParen(_) => {
+          if paren == 0 {
+            break;
+          }
+          paren -= 1;
+          out.push(tokens[i].clone());
+        }
+
+        Token::Symbol(s, _) if s == "=" && paren == 0 => {
+          is_declaration = true;
+          out.push(tokens[i].clone());
+          break;
+        }
+
+        _ => out.push(tokens[i].clone()),
+      }
+      i += 1;
+    }
+
+    (out, is_declaration, i)
+  }
+
   fn capture_expression(&mut self, tokens: &[Token], start: usize) -> (Vec<Token>, usize) {
     let mut out = Vec::new();
     let mut i = start;
@@ -1938,7 +2036,7 @@ setmetatable({name}, {{
       {
         let mut v: Vec<Token> = Vec::new();
         let mut is_returned = false;
-        v.extend(tokenize("(function(val)\nlocal iseq = function(first, second)\n  if first and type(first) == \"table\" and first.__is then\n    return first.__is(first, second) or first == second\n  else\n    return first == second\n  end\nend\n"));
+        v.extend(tokenize("(function(val)\n"));
         for (_, value) in branches.iter() {
           if !is_returned {
             is_returned = value
@@ -1951,11 +2049,13 @@ setmetatable({name}, {{
         v.extend(tokenize("end)("));
         v.extend(value.clone());
         v.extend(tokenize(")"));
-        if !is_returned
-        {
+        if !is_returned {
           v.insert(0, Token::Whitespace("\n".into(), 0));
           v.insert(0, Token::Symbol("do".into(), 0));
-          v.extend(vec![Token::Whitespace("\n".into(), 0), Token::Symbol("end".into(), 0)]);
+          v.extend(vec![
+            Token::Whitespace("\n".into(), 0),
+            Token::Symbol("end".into(), 0),
+          ]);
         }
         v
       },
