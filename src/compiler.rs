@@ -1301,10 +1301,108 @@ end\n", enum=enum_name));
     }
 
     let mut self_assignments = String::new();
-    for (i, arg) in constructor_args.iter().enumerate() {
-      if arg != "_" {
-        self_assignments.push_str(&format!("self.{arg} = args[{}]\n", i + 1, arg = arg));
+    let mut self_assignments_decorated = String::new();
+
+    // Re-tokenize constructor argument list directly
+    let mut constructor_arg_tokens = Vec::new();
+    if !constructor_args.is_empty() {
+      let joined = constructor_args.join(", ");
+      constructor_arg_tokens = tokenize(&joined);
+    }
+
+    let mut i = 0;
+    let mut arg_index = 1;
+
+    while i < constructor_arg_tokens.len() {
+      // Skip whitespace and commas
+      while i < constructor_arg_tokens.len()
+        && matches!(
+          &constructor_arg_tokens[i],
+          Token::Whitespace(_, _) | Token::Comma(_)
+        )
+      {
+        i += 1;
       }
+      if i >= constructor_arg_tokens.len() {
+        break;
+      }
+
+      // Collect decorators
+      let mut decorators = Vec::new();
+      while i < constructor_arg_tokens.len() {
+        match &constructor_arg_tokens[i] {
+          Token::Symbol(s, _) if s == "@" => {
+            i += 1;
+            let mut decorator_tokens = Vec::new();
+            if let Some(Token::Identifier(_, _)) = constructor_arg_tokens.get(i) {
+              decorator_tokens.push(constructor_arg_tokens[i].clone());
+              i += 1;
+
+              // Handle @decorator(...)
+              if let Some(Token::LeftParen(_)) = constructor_arg_tokens.get(i) {
+                let start = i;
+                let mut depth = 1;
+                i += 1;
+                while i < constructor_arg_tokens.len() && depth > 0 {
+                  match &constructor_arg_tokens[i] {
+                    Token::LeftParen(_) => depth += 1,
+                    Token::RightParen(_) => depth -= 1,
+                    _ => {}
+                  }
+                  i += 1;
+                }
+                decorator_tokens.extend_from_slice(&constructor_arg_tokens[start..i]);
+              }
+              decorators.push(decorator_tokens);
+            }
+          }
+          Token::Whitespace(_, _) => i += 1,
+          _ => break,
+        }
+      }
+
+      // Now read the actual argument identifier (could be `self.x`, `&y`, or just `z`)
+      let mut name_tokens = Vec::new();
+      while i < constructor_arg_tokens.len() {
+        match &constructor_arg_tokens[i] {
+          Token::Comma(_) | Token::Whitespace(_, _) => break,
+          Token::RightParen(_) => break,
+          _ => {
+            name_tokens.push(constructor_arg_tokens[i].clone());
+            i += 1;
+          }
+        }
+      }
+
+      if name_tokens.is_empty() {
+        continue;
+      }
+
+      let name_str = self.generate_code(name_tokens.clone()).trim().to_string();
+
+      let (assign_target, assign_expr) = if name_str.contains('.') {
+        (name_str.clone(), format!("args[{arg_index}]"))
+      } else if name_str.starts_with('&') {
+        (
+          name_str.trim_start_matches('&').to_string(),
+          format!("args[{arg_index}]"),
+        )
+      } else {
+        (format!("self.{name_str}"), format!("args[{arg_index}]"))
+      };
+
+      if !decorators.is_empty() {
+        let mut expr = assign_expr.clone();
+        for deco in decorators {
+          let deco_str = self.generate_code(deco);
+          expr = format!("{deco_str}(self, {expr})");
+        }
+        self_assignments_decorated.push_str(&format!("{assign_target} = {expr}\n"));
+      } else {
+        self_assignments.push_str(&format!("{assign_target} = {assign_expr}\n"));
+      }
+
+      arg_index += 1;
     }
 
     let init_line = if let Some(parent) = parent_name.clone() {
@@ -1386,12 +1484,14 @@ function {name}:__construct(is_first, ...)
   {assignments}
   {constructor_block}
   if self.__call_init and is_first then self:__call_init(...) end
+  {assignments_decorated}
 end
 "#,
       name = class_name,
       call_parent = call_parent,
       constructor_block = self.generate_code(constructor_block_str),
-      assignments = self_assignments
+      assignments = self_assignments,
+      assignments_decorated = self_assignments_decorated
     );
 
     let lua_code = format!(
@@ -2151,14 +2251,19 @@ end
         Token::BraceString(s, _) => {
           result.push_str(&format!("[[{}]]", s));
         }
+        Token::Symbol(sym, _) if sym == "!" => {
+          check_token!(&tokens, i, 1, false, Token::Symbol(sym2, _) if sym2 == "=" => {
+            result.push('~');
+          }, result.push_str(sym));
+        }
         Token::Symbol(sym, _) if sym == "&" => {
-          check_token!(&tokens, i, 1, true, Token::String(current_token, _)=> {
+          check_token!(&tokens, i, 1, false, Token::String(current_token, _)=> {
             result.push_str(format!("ptr_of({:?})", current_token).as_str());
             i += 1;
-          }, check_token!(&tokens, i, 1, true, Token::Number(current_token, _) => {
+          }, check_token!(&tokens, i, 1, false, Token::Number(current_token, _) => {
             result.push_str(format!("ptr_of({:?})", current_token).as_str());
             i += 1;
-          }, check_token!(&tokens, i, 1, true, Token::Identifier(current_token, _) => {
+          }, check_token!(&tokens, i, 1, false, Token::Identifier(current_token, _) => {
             result.push_str(format!("ptr_of({})", current_token).as_str());
             i += 1;
           }, result.push_str(sym))));

@@ -539,3 +539,10 @@ class! WeakMap:Map, {
     self.items = setmetatable({}, { __mode = "k" })
   }
 }
+
+function default_to(default)
+  return function(self, value)
+    print(value)
+    return value or default
+  end
+end

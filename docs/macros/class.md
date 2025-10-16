@@ -11,7 +11,7 @@ Let's first tackle the basics, not too much, not too little.
 ```lua
 -- To make a class, we simply only need to call the
 -- class macro with the name and empty block
-class! Person, {}
+local class! Person, {}
 
 -- Now, let's start with an initiator
 class! Person, {

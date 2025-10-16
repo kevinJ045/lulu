@@ -39,7 +39,7 @@ function loud_speak(class)
   return class
 end
 
-class! Animal(@default_to("nana") name), {
+class! Animal(name), {
   walk() {
     print(f"{self.name} is walking.")
   }
@@ -47,6 +47,5 @@ class! Animal(@default_to("nana") name), {
 
 class! @loud_speak @speaks("Meow!") Cat:Animal, {}
 
-local c = Cat("Whis")
-c:walk()
+local c = Cat("Whi")
 c:speak()
