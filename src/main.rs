@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
       mods,
       std::env::args().collect(),
       Some(std::env::current_exe()?.parent().unwrap().to_path_buf())
-    ));
+    ).await);
     Ok(())
   } else {
     let cli = Cli::parse();
@@ -79,13 +79,13 @@ async fn main() -> Result<()> {
               mods,
               args.clone(),
               Some(file.parent().unwrap().to_path_buf()),
-            )
+            ).await
           } else {
             let mut lulu = Lulu::new(
               Some(args.clone()),
               Some(file.parent().unwrap().to_path_buf()),
             );
-            lulu.exec_entry_mod_path(file.clone())
+            lulu.exec_entry_mod_path(file.clone()).await
           }
         );
         Ok(())
@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
         );
         lulu.compiler.env = "test".to_string();
         lulu.compiler.current_test = test.clone();
-        do_error!(lulu.exec_entry_mod_path(file.clone()));
+        do_error!(lulu.exec_entry_mod_path(file.clone()).await);
         Ok(())
       }
       Commands::Bundle { file, output } => {

@@ -182,7 +182,7 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
   Ok(())
 }
 
-pub fn run_bundle(
+pub async fn run_bundle(
   mods: HashMap<String, LuLib>,
   args: Vec<String>,
   current: Option<PathBuf>,
@@ -194,7 +194,7 @@ pub fn run_bundle(
   lulu.preload_mods()?;
 
   let main_name = lulu.find_mod("main")?;
-  lulu.exec_mod(main_name.as_str())?;
+  lulu.exec_final(main_name.as_str()).await?;
   Ok(())
 }
 

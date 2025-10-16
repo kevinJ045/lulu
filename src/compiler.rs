@@ -14,6 +14,8 @@ pub struct MacroRegistry {
   macros: HashMap<String, MacroDefinition>,
 }
 
+// const KEYWORDS: [&str;3] = ["class", "enum", "match"];
+
 impl MacroRegistry {
   pub fn new() -> Self {
     let mut macros = HashMap::new();
@@ -107,6 +109,14 @@ impl MacroRegistry {
       MacroDefinition {
         name: "spread".to_string(),
         params: vec!["name".to_string(), "methods".to_string()],
+        body: tokenize("into(nil)"),
+      },
+    );
+    macros.insert(
+      "collect".to_string(),
+      MacroDefinition {
+        name: "collect".to_string(),
+        params: vec!["methods".to_string()],
         body: tokenize("into(nil)"),
       },
     );
@@ -332,6 +342,10 @@ impl Lexer {
       self.next_char();
       return Token::MacroCall(s, self.tokens.clone());
     }
+
+    // if KEYWORDS.contains(&s.as_str()) {
+    //   return Token::MacroCall(s, self.tokens.clone());
+    // }
 
     Token::Identifier(s, self.tokens.clone())
   }
@@ -831,6 +845,8 @@ impl Compiler {
       self.compile_class(args, path, conf)
     } else if macro_name == "spread" {
       self.compile_spread(args, path, conf)
+    } else if macro_name == "collect" {
+      self.compile_collect(args, path, conf)
     } else if macro_name == "enum" {
       self.compile_enum(args, path, conf)
     } else if macro_name == "import" {
@@ -952,6 +968,79 @@ impl Compiler {
     }
 
     self.process_macros(tokenize(lua.as_str()), path, conf)
+  }
+
+  fn compile_collect(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
+    if args.is_empty() {
+      panic!("collect! expects at least one argument block");
+    }
+
+    let pattern_tokens = &args[0];
+    let items = self.extract_pattern_items(pattern_tokens);
+
+    let mut has_spreads = false;
+    let mut parts = Vec::new();
+
+    for item in &items {
+      let trimmed = item.trim();
+      if trimmed.is_empty() {
+        continue;
+      }
+
+      if trimmed.starts_with("...") || trimmed.starts_with("..") {
+        has_spreads = true;
+        continue;
+      }
+
+      if let Some(eq_index) = trimmed.find('=') {
+        let (key, val) = trimmed.split_at(eq_index);
+        parts.push(format!(
+          "{} = {}",
+          key.trim(),
+          val.trim_start_matches('=').trim()
+        ));
+      } else {
+        parts.push(format!("{} = {}", trimmed, trimmed));
+      }
+    }
+
+    if !has_spreads {
+      let table = format!("{{ {} }}", parts.join(", "));
+      return self.process_macros(tokenize(&table), path, conf);
+    }
+
+    let mut lua = String::new();
+    lua.push_str("(function()\n  local _tbl = {");
+    if !parts.is_empty() {
+      lua.push_str(&parts.join(", "));
+    }
+    lua.push_str("}\n");
+
+    for item in &items {
+      let trimmed = item.trim();
+      if trimmed.starts_with("...") {
+        let name = trimmed.trim_start_matches("...");
+        lua.push_str(&format!(
+          "  for _,v in ipairs({}) do table.insert(_tbl, v) end\n",
+          name
+        ));
+      } else if trimmed.starts_with("..") {
+        let name = trimmed.trim_start_matches("..");
+        lua.push_str(&format!(
+          "  for k,v in pairs({}) do _tbl[k] = v end\n",
+          name
+        ));
+      }
+    }
+
+    lua.push_str("  return _tbl\nend)()");
+
+    self.process_macros(tokenize(&lua), path, conf)
   }
 
   fn extract_pattern_items(&self, tokens: &[Token]) -> Vec<String> {
@@ -1764,7 +1853,6 @@ end
       }
     }
 
-    // Apply class decorators
     let mut decorator_code = String::new();
     for decorator in class_decorators.iter().rev() {
       let decorator_str = self.generate_code(decorator.clone());

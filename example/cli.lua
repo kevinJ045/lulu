@@ -1,52 +1,19 @@
 
+-- class! @getter("getter", {
 
-class! Person, {
-  init(name, age) {
-    self.name = name
-    self.age = age
-  }
+-- }) MyClass, {}
 
-  greet() {
-    print(f"Hello, my name is {self.name} and i am {self.age} years old.")
-  }
+local a = "ss"
+local b = 3
+local c = vec!{1, 2, 3}
+local d = function()
+  
+end
+
+local f = {
+  k = "ss"
 }
 
-function Person:init()
-  print(self.name)
-end
+local g = {1,2,3}
 
-local p = Person("John", 30)
-p:greet()
-
-
-function speaks(voice) -- custom attributes
-  -- this is the actual decorator
-  return function(class)
-    function class:speak() 
-      print(voice)
-    end
-
-    return class
-  end
-end
-
-function loud_speak(class)
-  local old_speak = class.speak
-  function class:speak()
-    io.write("!!! ")
-    old_speak(self)
-  end
-  return class
-end
-
-class! Animal(@default_to("nana") name), {
-  walk() {
-    print(f"{self.name} is walking.")
-  }
-}
-
-class! @loud_speak @speaks("Meow!") Cat:Animal, {}
-
-local c = Cat("Whis")
-c:walk()
-c:speak()
+fprint(collect! { a, b, c, d, e = "the e", ..f, ...g })

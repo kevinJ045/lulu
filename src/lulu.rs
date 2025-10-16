@@ -32,7 +32,7 @@ pub struct Lulu {
   pub args: Vec<String>,
   pub current: Option<PathBuf>,
   pub compiler: Compiler,
-  std: String
+  std: String,
 }
 
 impl Lulu {
@@ -44,19 +44,18 @@ impl Lulu {
 
     let std = compiler.compile(STD_FILE, None, None);
     // println!("{}", std);
-    
+
     Lulu {
       mods,
       lua,
       args: args.unwrap_or_default(),
       current,
       compiler,
-      std
+      std,
     }
   }
 
   pub fn preload_mods(&mut self) -> mlua::Result<()> {
-
     let items = self.compiler.importmap.clone();
 
     for (name, (path_to_import, path_from, conf)) in &items {
@@ -100,18 +99,11 @@ impl Lulu {
             return exec_mod(name)
           end
         end
-        "#
+        "#,
       )
       .exec()?;
 
-    self
-      .lua
-      .load(
-        self.std.clone()
-      )
-      .set_name("std")
-      .exec()?;
-
+    self.lua.load(self.std.clone()).set_name("std").exec()?;
 
     Ok(())
   }
@@ -160,7 +152,11 @@ impl Lulu {
       name.clone()
     };
 
-    self.add_mod(LuluMod { name: modname, source, conf });
+    self.add_mod(LuluMod {
+      name: modname,
+      source,
+      conf,
+    });
     Ok(())
   }
 
@@ -237,11 +233,14 @@ impl Lulu {
 
     env.set("lookup_dylib", lookup_dylib)?;
 
-
-    let using = self.lua.load(chunk! {
-      local args = { ... }
-      args[1](getfenv(1))
-    }).set_environment(env.clone()).into_function()?;
+    let using = self
+      .lua
+      .load(chunk! {
+        local args = { ... }
+        args[1](getfenv(1))
+      })
+      .set_environment(env.clone())
+      .into_function()?;
 
     env.set("using", using)?;
 
@@ -323,9 +322,45 @@ impl Lulu {
     Ok(lmod.name.clone())
   }
 
-  pub fn exec_entry_mod_path(&mut self, path: PathBuf) -> mlua::Result<()> {
+  pub async fn exec_final(&mut self, name: &str) -> mlua::Result<mlua::Value> {
+    let result = self.exec_mod(name);
+
+    let scheduler: mlua::Function = self
+      .lua
+      .globals()
+      .get::<mlua::Table>("coroutine")?
+      .get("resume")?;
+    let sched_co: mlua::Value = self
+      .lua
+      .globals()
+      .get::<mlua::Table>("Future")?
+      .get("scheduler")?;
+
+    loop {
+      let active = scheduler.call::<mlua::Value>(sched_co.clone())?;
+      match active {
+        mlua::Value::Boolean(true) | mlua::Value::Nil => {
+          tokio::task::yield_now().await;
+        }
+        mlua::Value::Boolean(false) => {
+          break;
+        }
+        _ => break,
+      }
+    }
+
+    self
+      .lua
+      .globals()
+      .get::<mlua::Function>("join_threads")?
+      .call::<()>(())?;
+
+    result
+  }
+
+  pub async fn exec_entry_mod_path(&mut self, path: PathBuf) -> mlua::Result<()> {
     let mainname = self.entry_mod_path(path)?;
-    self.exec_mod(mainname.as_str())?;
+    self.exec_final(mainname.as_str()).await?;
 
     Ok(())
   }
@@ -341,7 +376,9 @@ impl Lulu {
 
     match lmod.source.clone() {
       LuluModSource::Code(code) => Ok(code),
-     _ => Err(mlua::Error::DeserializeError("Module string was not found".to_string()))
+      _ => Err(mlua::Error::DeserializeError(
+        "Module string was not found".to_string(),
+      )),
     }
   }
 }

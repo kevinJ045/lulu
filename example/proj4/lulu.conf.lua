@@ -11,7 +11,5 @@ build = function()
   resolve_dependencies()
   bundle_main("main.lua")
 
-  include_bytes("")
-
   print('Built binary to ".lib" folder.')
 end

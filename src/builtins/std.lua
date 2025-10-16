@@ -8,7 +8,7 @@ function dump_item_into_string(o, indent)
   if type(o) == 'table' then
     local s = '{\n'
     for k, v in pairs(o) do
-      if k:sub(1, 2) ~= "__" then
+      if type(k) == "number" or k:sub(1, 2) ~= "__" then
         s = s .. string.rep('  ', indent + 1) .. tostring(k) .. ' = ' .. dump_item_into_string(v, indent + 1) .. ',\n'
       end        
     end
@@ -100,6 +100,7 @@ function instanceof(obj, class)
   return false
 end
 
+__future_stack = {}
 
 Future = {}
 Future.__index = Future
@@ -116,6 +117,7 @@ function Future.new(fn)
   self.onAfter = function(e)
     return e
   end
+  table.insert(__future_stack, self)
   return self
 end
 
@@ -125,20 +127,28 @@ function Future:poll(...)
   if not ok then
     self.error = res
     self.done = true
+    return
   end
   if coroutine.status(self.co) == "dead" then
     self.done = true
     self.result = res
+  else
+    -- Yield control back to the scheduler after every poll
+    coroutine.yield()
   end
   return res
+end
+
+function Future:last()
+  if self.error then self.onError(self.error) end
+  return self.onAfter(self.result)
 end
 
 function Future:await()
   while not self.done do
     self:poll()
   end
-  if self.error then self.onError(self.error) end
-  return self.onAfter(self.result)
+  return self:last()
 end
 
 function Future:after(cb)
@@ -157,6 +167,27 @@ end
 function async(fn)
   return Future.new(fn)
 end
+
+Future.scheduler = coroutine.create(function()
+  local i = 1
+  while #__future_stack > 0 do
+    local fut = __future_stack[i]
+    if not fut.done then 
+      fut:poll()
+    end
+    if fut.done then
+      fut:last()
+      table.remove(__future_stack, i)
+    else
+      i = i + 1
+    end
+    if i > #__future_stack then i = 1 end
+    coroutine.yield()
+  end
+
+  return false
+end)
+
 
 
 enum! Option, {
@@ -183,46 +214,50 @@ Result.func.unwrap = function(item)
   return item.content and item.content or item.err
 end
 
-class! Into, {
-  into(){
-    local parent = self
-    local proxy = {}
+function into_collectible(name)
+  return function(class)
+    function class:into()
+      local parent = self
+      local proxy = {}
 
-    function proxy.collect()
-      return self
-    end
+      proxy[name] = function()
+        return self
+      end
 
-    function proxy.clone()
-      return parent:clone():into()
-    end
+      function proxy.clone()
+        return parent:clone():into()
+      end
 
-    setmetatable(proxy, {
-      __index = function(_, key)
-        local val = parent[key]
+      setmetatable(proxy, {
+        __index = function(_, key)
+          local val = parent[key]
 
-        if type(val) == "function" then
-          return function(...)
-            local result = val(parent, ...)
-            if result == parent then
-              return proxy
-            else
-              return result
+          if type(val) == "function" then
+            return function(...)
+              local result = val(parent, ...)
+              if result == parent then
+                return proxy
+              else
+                return result
+              end
             end
           end
-        end
 
-        return val
-      end,
-      __tostring = function()
-        return parent:__tostring()
-      end,
-    })
+          return val
+        end,
+        __tostring = function()
+          return parent:__tostring()
+        end,
+      })
 
-    return proxy
-  }
-}
+      return proxy
+    end
 
-class! Vec:Into, {
+    return class
+  end
+end
+
+class! @into_collectible("collect") Vec, {
   init(len) {
     if type(len) == "number" then
       self.items = {}
@@ -365,7 +400,7 @@ class! Vec:Into, {
 
 }
 
-class! String:Into, {
+class! @into_collectible("to_string") String, {
   init(s){
     if type(s) == "string" then
       self.str = s
@@ -427,7 +462,7 @@ class! String:Into, {
   }
 }
 
-class! Set:Into, {
+class! @into_collectible("collect") Set, {
   init(items){
     self.items = {}
     if type(items) == "table" then
@@ -480,7 +515,7 @@ class! WeakSet:Set, {
 }
 
 
-class! Map:Into, {
+class! @into_collectible("collect") Map, {
   init(items){
     self.items = {}
   }

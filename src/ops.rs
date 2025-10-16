@@ -1,7 +1,7 @@
 use crate::lulu::{Lulu, LuluModSource};
 use crate::package_manager::PackageManager;
+use mlua::Lua;
 use mlua::prelude::LuaError;
-use mlua::{Lua};
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use regex::Regex;
@@ -18,9 +18,15 @@ use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::io::{Read, Write};
+use std::sync::{Mutex};
+use std::thread::{JoinHandle};
 use tokio::time;
 use zip::write::ExtendedFileOptions;
 use zip::{ZipWriter, write::FileOptions};
+
+lazy_static::lazy_static! {
+  static ref THREADS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
+}
 
 #[derive(Clone)]
 struct LuluHashSet {
@@ -575,12 +581,9 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     })
   }?;
 
-  let sleep_fn = lua.create_async_function({
-    async move |_, secs: u64| -> mlua::Result<()> {
-      time::sleep(time::Duration::from_secs(secs)).await;
-      println!("Sleep over");
-      Ok(())
-    }
+  let sleep_fn = lua.create_async_function(async move |_, secs: u64| -> mlua::Result<()> {
+    time::sleep(time::Duration::from_secs(secs)).await;
+    Ok(())
   })?;
   lua.globals().set("sleep", sleep_fn)?;
 
@@ -774,6 +777,23 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     })
   })?;
   lua.globals().set("HashMap", map_ctor)?;
+
+  let spawn_fn = lua.create_function(|_, code: String| -> mlua::Result<()> {
+    let handle = std::thread::spawn(move || {
+      let lua = unsafe { mlua::Lua::unsafe_new() };
+      let _ = lua.load(&code).exec();
+    });
+    THREADS.lock().unwrap().push(handle);
+    Ok(())
+  })?;
+  lua.globals().set("spawn_thread", spawn_fn)?;
+
+  lua.globals().set("join_threads", lua.create_function(|_, ()| {
+    for handle in THREADS.lock().unwrap().drain(..) {
+      let _ = handle.join();
+    }
+    Ok(())
+  })?)?;
 
   create_std(lua)?;
 
