@@ -66,3 +66,63 @@ enum! MyEnum, {
 local instance = MyEnum.Variant("hello")
 print(instance:unwrap()) -- Output: hello
 ```
+
+## Enum Decorators
+
+Decorators can be applied to an entire `enum!` definition or to individual variants within it. This allows for powerful meta-programming capabilities, such as automatically adding serialization or marking variants as deprecated.
+
+### Enum Decorator
+
+Apply a decorator to the entire enum by placing it before the `enum!` macro.
+
+```lua
+-- decorator that makes an enum printable
+local printable = function(_enum)
+  _enum.func.to_string = function(item)
+    return f"<Enum {_enum.__name}:{item.__enum_var_name}>"
+  end
+
+  return _enum
+end
+
+enum! @printable Status, {
+  Ready,
+  InProgress,
+  Done
+}
+
+print(Status.Ready.to_string()) -- Output: <Enum Status:Ready>
+```
+
+### Variant Decorator
+
+Apply a decorator to a specific variant by placing it before the variant name.
+
+```lua
+-- decorator that marks something as deprecated
+local deprecated = decorator! {
+  (_enum, variant) {
+    dynamic {
+      -- For function-like variants
+      return function(...)
+        print(f"Warning: Variant '{name}' is deprecated.")
+        return variant(...)
+      end
+    }
+    static {
+      -- For simple variants, we need to wrap it
+      print(f"Warning: Variant '{name}' is deprecated.")
+      return variant
+    }
+  }
+}
+
+enum! Message, {
+  NewMessage(string),
+  @deprecated
+  OldMessage(string)
+}
+
+local msg = Message.OldMessage("hello") -- Prints: Warning: Variant 'OldMessage' is deprecated.
+```
+

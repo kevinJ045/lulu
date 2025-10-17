@@ -1249,7 +1249,7 @@ impl Compiler {
     let mut lua = String::new();
     let mut variant_decorator_lua = String::new();
 
-    lua.push_str(&format!("{} = make_enum()\n", enum_name));
+    lua.push_str(&format!("{name} = make_enum(\"{name}\")\n", name = enum_name));
 
     for (vname, args, decorators) in &variants {
       if let Some(args) = args {
@@ -1259,7 +1259,7 @@ impl Compiler {
           .collect::<Vec<String>>()
           .join(", ");
         lua.push_str(&format!(
-            "{enum}.{vname} = function(...) return make_enum_var({enum}, '{vname}', {{ {args_list} }}, ...) end\n",
+            "{enum}.{vname} = make_enum_var_dyn({enum}, '{vname}', {{ {args_list} }})\n",
             enum = enum_name,
             vname = vname,
             args_list = args_list
@@ -1275,7 +1275,7 @@ impl Compiler {
       for decorator in decorators.iter().rev() {
         let decorator_str = self.generate_code(decorator.clone());
         variant_decorator_lua.push_str(&format!(
-          "{0}.{1} = {2}({0}, {0}.{1})\n",
+          "{0}.{1} = {2}({0}, {0}.{1}, \"{1}\")\n",
           enum_name, vname, decorator_str
         ));
       }
@@ -1364,7 +1364,7 @@ impl Compiler {
     let mut decorator_code = String::new();
     for decorator in enum_decorators.iter().rev() {
       let decorator_str = self.generate_code(decorator.clone());
-      decorator_code.push_str(&format!("{0} = {1}({0})\n", enum_name, decorator_str));
+      decorator_code.push_str(&format!("{0} = {1}({0}, \"{0}\")\n", enum_name, decorator_str));
     }
     tokenized.extend(tokenize(&decorator_code));
 
@@ -1939,7 +1939,7 @@ end
       let mut param_decorator_code = String::new();
       for (arg_name, decorator) in param_decorators {
         let decorator_str = self.generate_code(decorator);
-        param_decorator_code.push_str(&format!("{0} = {1}(self, {0})\n", arg_name, decorator_str));
+        param_decorator_code.push_str(&format!("{0} = {1}(self, {0}, \"{0}\")\n", arg_name, decorator_str));
       }
       let param_decorator_tokens = tokenize(&param_decorator_code);
 
@@ -1968,7 +1968,7 @@ end
         let decorator_str = self.generate_code(decorator.clone());
         let method_name_str = self.generate_code(vec![name.clone()]);
         let decorated_method = format!(
-          "{0}.{1} = {2}({0}, {0}.{1})\n",
+          "{0}.{1} = {2}({0}, {0}.{1}, \"{1}\")\n",
           class_name, method_name_str, decorator_str
         );
         tokens.extend(tokenize(&decorated_method));
@@ -1978,7 +1978,7 @@ end
     let mut decorator_code = String::new();
     for decorator in class_decorators.iter().rev() {
       let decorator_str = self.generate_code(decorator.clone());
-      decorator_code.push_str(&format!("{0} = {1}({0})\n", class_name, decorator_str));
+      decorator_code.push_str(&format!("{0} = {1}({0}, \"{0}\")\n", class_name, decorator_str));
     }
     tokens.extend(tokenize(&decorator_code));
 
@@ -2154,7 +2154,7 @@ end
       }
     }
 
-    let mut lua_code = String::from("function(...)\n    local arg1, arg2 = select(1, ...)\n");
+    let mut lua_code = String::from("function(...)\n    local arg1, arg2, arg3 = select(1, ...)\n local name = arg2\n if arg3 then name = arg3 end\n");
 
     if !common_body.is_empty() {
       lua_code.push_str(self.generate_code(common_body).as_str());
@@ -2177,7 +2177,7 @@ end
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
       let body = self.generate_code(param_body);
       lua_code.push_str(&format!(
-        "    {} type(arg1) == \"table\" and arg1.__class and arg2 then\n",
+        "    {} type(arg1) == \"table\" and arg1.__class and arg3 then\n",
         if_or_elseif()
       ));
       lua_code.push_str(&format!("      local {} = arg1, arg2\n", inner_sig_str));
@@ -2190,7 +2190,7 @@ end
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
       let body = self.generate_code(class_method_body);
       lua_code.push_str(&format!(
-        "    {} type(arg1) == \"table\" and arg1.__call_init and arg2 then\n",
+        "    {} type(arg1) == \"table\" and arg1.__call_init and arg3 then\n",
         if_or_elseif()
       ));
       lua_code.push_str(&format!("      local {} = arg1, arg2\n", inner_sig_str));
@@ -2203,7 +2203,7 @@ end
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
       let body = self.generate_code(class_body);
       lua_code.push_str(&format!(
-        "    {} type(arg1) == \"table\" and arg1.__call_init and not arg2 then\n",
+        "    {} type(arg1) == \"table\" and arg1.__call_init and not arg3 then\n",
         if_or_elseif()
       ));
       lua_code.push_str(&format!("      local {} = arg1\n", inner_sig_str));
@@ -2274,7 +2274,7 @@ end
       }
 
       lua_code.push_str(&format!(
-        "    {} type(arg1) == \"table\" and arg1.__is_enum and arg2 then\n",
+        "    {} type(arg1) == \"table\" and arg1.__is_enum and arg3 then\n",
         if_or_elseif()
       ));
       lua_code.push_str(&format!("      local {} = arg1, arg2\n", inner_sig_str));
@@ -2299,7 +2299,7 @@ end
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
       let body = self.generate_code(enum_body);
       lua_code.push_str(&format!(
-        "    {} type(arg1) == \"table\" and arg1.__is_enum and not arg2 then\n",
+        "    {} type(arg1) == \"table\" and arg1.__is_enum and not arg3 then\n",
         if_or_elseif()
       ));
       lua_code.push_str(&format!("      local {} = arg1\n", inner_sig_str));

@@ -14,8 +14,9 @@
 * **Macros**
   * [Introduction](macros/README.md)
   * [`cfg!`](macros/cfg.md)
-  * [`class!`](macros/class.md)
-  * [`enum!`](macros/enum.md)
+  * [`class!`](./macros/class.md)
+  * [`decorator!`](./macros/decorator.md)
+  * [`enum!`](./macros/enum.md)
   * [`match!`](macros/match.md)
   * [`lml!`](macros/lml.md)
   * [Other Macros](macros/other-macros.md)

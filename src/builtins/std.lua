@@ -36,7 +36,7 @@ function namespace(tbl, chunk)
   return chunk(tbl)
 end
 
-function make_enum()
+function make_enum(name)
   local e = {}
   e.func = {}
 
@@ -51,8 +51,34 @@ function make_enum()
   end
   
   e.__is_enum = true
+  e.__name = name or ""
   
   return e
+end
+
+local __enum_var_name = {}
+function make_enum_var_dyn(enum_table, vname, names)
+  return function(...)
+    local args = {...}
+    if args[1] == __enum_var_name then
+      return vname
+    end
+    return make_enum_var(enum_table, vname, names, ...)
+  end
+end
+
+function get_enum_var_name(var)
+  if type(var) == "function" then
+    return var(__enum_var_name)
+  else
+    return var.__enum_var_name
+  end
+end
+
+function index_of(object, item)
+  for i, val in ipairs(object) do
+    if val == item then return i end
+  end
 end
 
 function make_enum_var(enum_table, vname, names, ...)
@@ -62,6 +88,7 @@ function make_enum_var(enum_table, vname, names, ...)
     o[names[i] or i] = arg
   end
   o.__enum = enum_table
+  o.__enum_var_name = vname
   o.__enum_var = enum_table[vname] or vname
   o.__is = function(b)
     if type(b) == 'function' then return o.__enum_var == b end
@@ -322,8 +349,8 @@ function validate_type(...)
             if types[i] != "number" and types[i] != "string" then
               t = f"abstract({tostring(types[i])})"
             end
-            error(types[i] and f"Expected {t} for function at argument {i}. Found {type(arg)}" or (
-              #types > #args and f"Expected {#types} arguments for function, given {#args}" or f"Extra args for function."
+            error(types[i] and f"Expected {t} for {name} at argument {i}. Found {type(arg)}" or (
+              #types > #args and f"Expected {#types} arguments for {name}, given {#args}" or f"Extra args for {name}."
             ))
           end
         end
@@ -340,6 +367,9 @@ function validate_type(...)
         return function(...)
           return variant(unpack(verify(...)))
         end
+      }
+      static {
+        return variant
       }
     }
     (_self, value) {
