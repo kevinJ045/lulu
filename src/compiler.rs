@@ -129,6 +129,14 @@ impl MacroRegistry {
       },
     );
     macros.insert(
+      "decorator".to_string(),
+      MacroDefinition {
+        name: "decorator".to_string(),
+        params: vec!["methods".to_string()],
+        body: tokenize("into(nil)"),
+      },
+    );
+    macros.insert(
       "match".to_string(),
       MacroDefinition {
         name: "for_each".to_string(),
@@ -849,6 +857,8 @@ impl Compiler {
       self.compile_collect(args, path, conf)
     } else if macro_name == "enum" {
       self.compile_enum(args, path, conf)
+    } else if macro_name == "decorator" {
+      self.compile_decorator(args, path, conf)
     } else if macro_name == "import" {
       let mut cargs = args.clone();
       let cpath = get_token_string(&args[1][0]).unwrap();
@@ -1079,95 +1089,196 @@ impl Compiler {
       panic!("enum! expects two arguments: name and variants block");
     }
 
-    let name_tokens: &_ = &args[0];
+    let decl_tokens: &_ = &args[0];
     let variants_tokens = &args[1];
 
-    let enum_name = self.generate_code(name_tokens.clone()).trim().to_string();
-    let variants_code = self.generate_code(variants_tokens.clone());
+    // Parse enum decorators
+    let mut i = 0;
+    let mut enum_decorators: Vec<Vec<Token>> = Vec::new();
+    while i < decl_tokens.len() {
+      if let Some(Token::Symbol(s, _)) = decl_tokens.get(i) {
+        if s == "@" {
+          i += 1; // Skip '@'
+          let mut decorator_tokens = Vec::new();
+          if let Some(Token::Identifier(_, _)) = decl_tokens.get(i) {
+            decorator_tokens.push(decl_tokens[i].clone());
+            i += 1;
+            if let Some(Token::LeftParen(_)) = decl_tokens.get(i) {
+              let start_paren = i;
+              let mut paren_count = 1;
+              i += 1;
+              while i < decl_tokens.len() && paren_count > 0 {
+                if let Token::LeftParen(_) = &decl_tokens[i] {
+                  paren_count += 1;
+                } else if let Token::RightParen(_) = &decl_tokens[i] {
+                  paren_count -= 1;
+                }
+                i += 1;
+              }
+              decorator_tokens.extend_from_slice(&decl_tokens[start_paren..i]);
+            }
+            enum_decorators.push(decorator_tokens);
+          }
+          while i < decl_tokens.len() && matches!(decl_tokens.get(i), Some(Token::Whitespace(_, _)))
+          {
+            i += 1;
+          }
+          continue;
+        }
+      }
+      break;
+    }
 
-    let mut variants = Vec::new();
-    for line in variants_code.lines() {
-      let line = line.trim();
-      if line.is_empty() {
+    let remaining_decl_tokens = &decl_tokens[i..];
+    let enum_name = self
+      .generate_code(remaining_decl_tokens.to_vec())
+      .trim()
+      .to_string();
+
+    // Variant parsing
+    let mut variants: Vec<(String, Option<Vec<String>>, Vec<Vec<Token>>)> = Vec::new();
+    let mut variant_groups: Vec<Vec<Token>> = Vec::new();
+    let mut current_variant_tokens: Vec<Token> = Vec::new();
+
+    for token in variants_tokens {
+      if let Token::Comma(_) = token {
+        if !current_variant_tokens.is_empty() {
+          variant_groups.push(current_variant_tokens);
+          current_variant_tokens = Vec::new();
+        }
+      } else {
+        current_variant_tokens.push(token.clone());
+      }
+    }
+    if !current_variant_tokens.is_empty() {
+      variant_groups.push(current_variant_tokens);
+    }
+
+    for tokens in variant_groups {
+      let mut i = 0;
+      // skip leading whitespace
+      while i < tokens.len() && matches!(tokens[i], Token::Whitespace(_, _)) {
+        i += 1;
+      }
+      if i >= tokens.len() {
         continue;
       }
-      if let Some(paren_idx) = line.find('(') {
-        let variant_name = line[..paren_idx].trim();
-        let args_str = line[paren_idx + 1..line.len() - 1].trim();
+
+      let mut variant_decorators: Vec<Vec<Token>> = Vec::new();
+      loop {
+        while i < tokens.len() && matches!(tokens[i], Token::Whitespace(_, _)) {
+          i += 1;
+        }
+        if i >= tokens.len() {
+          break;
+        }
+
+        if let Some(Token::Symbol(s, _)) = tokens.get(i) {
+          if s == "@" {
+            i += 1; // Skip '@'
+            let mut decorator_tokens = Vec::new();
+            if let Some(Token::Identifier(_, _)) = tokens.get(i) {
+              decorator_tokens.push(tokens[i].clone());
+              i += 1;
+              if let Some(Token::LeftParen(_)) = tokens.get(i) {
+                let start_paren = i;
+                let mut paren_count = 1;
+                i += 1;
+                while i < tokens.len() && paren_count > 0 {
+                  if let Token::LeftParen(_) = &tokens[i] {
+                    paren_count += 1;
+                  } else if let Token::RightParen(_) = &tokens[i] {
+                    paren_count -= 1;
+                  }
+                  i += 1;
+                }
+                decorator_tokens.extend_from_slice(&tokens[start_paren..i]);
+              }
+              variant_decorators.push(decorator_tokens);
+              continue;
+            }
+          }
+        }
+        break;
+      }
+
+      while i < tokens.len() && matches!(tokens[i], Token::Whitespace(_, _)) {
+        i += 1;
+      }
+
+      let variant_name = if let Some(Token::Identifier(name, _)) = tokens.get(i) {
+        i += 1;
+        name.clone()
+      } else {
+        if i >= tokens.len() {
+          continue;
+        }
+        panic!("Expected variant name, found {:?}", tokens.get(i));
+      };
+
+      while i < tokens.len() && matches!(tokens[i], Token::Whitespace(_, _)) {
+        i += 1;
+      }
+
+      let mut variant_args: Option<Vec<String>> = None;
+      if let Some(Token::LeftParen(_)) = tokens.get(i) {
+        let start_paren = i;
+        let mut paren_count = 1;
+        i += 1;
+        while i < tokens.len() && paren_count > 0 {
+          if let Token::LeftParen(_) = &tokens[i] {
+            paren_count += 1;
+          } else if let Token::RightParen(_) = &tokens[i] {
+            paren_count -= 1;
+          }
+          i += 1;
+        }
+        let args_tokens = &tokens[start_paren + 1..i - 1];
+        let args_str = self.generate_code(args_tokens.to_vec());
         let args: Vec<String> = if args_str.is_empty() {
           Vec::new()
         } else {
           args_str.split(',').map(|s| s.trim().to_string()).collect()
         };
-        variants.push((variant_name.to_string(), Some(args)));
-      } else {
-        variants.push((line.to_string(), None));
+        variant_args = Some(args);
       }
+
+      variants.push((variant_name, variant_args, variant_decorators));
     }
 
     let mut lua = String::new();
+    let mut variant_decorator_lua = String::new();
 
-    lua.push_str(&format!("{} = {{}}\n", enum_name));
-    lua.push_str(&format!("{}.func = {{}}\n", enum_name));
-    for (vname, args) in &variants {
+    lua.push_str(&format!("{} = make_enum()\n", enum_name));
+
+    for (vname, args, decorators) in &variants {
       if let Some(args) = args {
-        // Tuple-like variant (has fields)
-        let mut args_list = args.join(", ");
-        if args_list.ends_with(")") {
-          args_list = args_list[0..args_list.len() - 1].to_string();
-        }
+        let args_list = args.into_iter().map(|x| format!("\"{}\"", x)).collect::<Vec<String>>().join(", ");
         lua.push_str(&format!(
-            "function {enum}.{vname}({args_list})\n  local o = {{}}\n",
+            "{enum}.{vname} = function(...) return make_enum_var({enum}, '{vname}', {{ {args_list} }}, ...) end\n",
             enum = enum_name,
             vname = vname,
             args_list = args_list
         ));
-        for arg in args {
-          lua.push_str(&format!("  o.{arg} = {arg}\n", arg = arg));
-        }
-        lua.push_str(&format!(
-            "  o.__enum = {enum}.{vname}\n",
-            enum = enum_name
-        ));
-        lua.push_str(&format!(
-            "  o.__is = function(a, b)\n    if type(b) == 'function' then return a.__enum == b end\n    if type(b) == 'table' and b.__enum then return a.__enum == b.__enum end\n    return false\n  end\n",
-        ));
-        lua.push_str(&format!(
-            "  setmetatable(o, {{ __index = function(tbl, key) \
-               local item = {enum}.func[key] \
-               if type(item) == 'function' then return function(...) return item(o, ...) end end \
-               return {enum}.func[key] \
-             end }})\n  return o\nend\n",
-            enum = enum_name
-        ));
       } else {
         lua.push_str(&format!(
-            "do local o = {{}}; o.__enum = '{vname}'; o.__is = function(a,b) \
-               if type(b)=='function' then return a.__enum==b end; \
-               if type(b)=='table' and b.__enum then return a.__enum==b.__enum end; \
-               return false; end; \
-               setmetatable(o, {{ __index = function(tbl, key) \
-                local item = {enum}.func[key] \
-                if type(item) == 'function' then return function(...) return item(o, ...) end end \
-                return {enum}.func[key] \
-              end }}); {enum}.{vname} = o; end\n",
+            "{enum}.{vname} = make_enum_var({enum}, '{vname}')\n",
             enum = enum_name,
             vname = vname
         ));
       }
+
+      for decorator in decorators.iter().rev() {
+        let decorator_str = self.generate_code(decorator.clone());
+        variant_decorator_lua.push_str(&format!(
+          "{0}.{1} = {2}({0}, {0}.{1})\n",
+          enum_name, vname, decorator_str
+        ));
+      }
     }
 
-    lua.push_str(&format!("
-function {enum}.is(obj, variant)
-  if type(obj) ~= 'table' then return false end
-  if obj.__enum == nil then return false end
-  if variant then
-    return obj.__enum == variant
-  end
-  return true
-end\n", enum=enum_name));
-
     let mut tokenized = tokenize(&lua);
+    tokenized.extend(tokenize(&variant_decorator_lua));
 
     if args.len() > 2 {
       let mut branches: Vec<(Vec<Token>, Vec<Token>)> = Vec::new();
@@ -1245,6 +1356,13 @@ end\n", enum=enum_name));
     }
 
     // println!("{}", self.generate_code(tokenized.clone()));
+
+    let mut decorator_code = String::new();
+    for decorator in enum_decorators.iter().rev() {
+      let decorator_str = self.generate_code(decorator.clone());
+      decorator_code.push_str(&format!("{0} = {1}({0})\n", enum_name, decorator_str));
+    }
+    tokenized.extend(tokenize(&decorator_code));
 
     self.process_macros(tokenized, path, conf)
   }
@@ -1863,6 +1981,304 @@ end
     self.process_macros(tokens, path, conf)
   }
 
+  fn capture_expression(&self, tokens: &[Token], start: usize) -> (Vec<Token>, usize) {
+    let mut i = start;
+    while i < tokens.len() && matches!(tokens[i], Token::Whitespace(_, _)) {
+      i += 1;
+    }
+
+    if i >= tokens.len() {
+      return (vec![], i);
+    }
+
+    let start_expr = i;
+
+    if let Token::LeftParen(_) = &tokens[i] {
+      let mut paren_count = 1;
+      i += 1;
+      while i < tokens.len() && paren_count > 0 {
+        match &tokens[i] {
+          Token::LeftParen(_) => paren_count += 1,
+          Token::RightParen(_) => paren_count -= 1,
+          _ => {}
+        }
+        i += 1;
+      }
+      return (tokens[start_expr..i].to_vec(), i);
+    }
+
+    if let Token::Identifier(_, _) = &tokens[i] {
+      i += 1;
+      return (tokens[start_expr..i].to_vec(), i);
+    }
+
+    (vec![], start)
+  }
+
+  fn compile_decorator(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Vec<Token> {
+    if args.is_empty() {
+      panic!("decorator! expects a body");
+    }
+
+    let body_tokens = &args[0];
+
+    let mut common_body = vec![];
+    let mut class_method_sig = vec![];
+    let mut class_method_body = vec![];
+    let mut class_sig = vec![];
+    let mut class_body = vec![];
+    let mut enum_variant_sig = vec![];
+    let mut enum_variant_body = vec![];
+    let mut enum_sig = vec![];
+    let mut enum_body = vec![];
+    let mut param_sig = vec![];
+    let mut param_body = vec![];
+
+    let mut i = 0;
+    while i < body_tokens.len() {
+      while i < body_tokens.len() && matches!(&body_tokens[i], Token::Whitespace(_, _)) {
+        i += 1;
+      }
+      if i >= body_tokens.len() {
+        break;
+      }
+
+      let (signature_tokens, next_i) = self.capture_expression(body_tokens, i);
+      i = next_i;
+
+      while i < body_tokens.len() && matches!(&body_tokens[i], Token::Whitespace(_, _)) {
+        i += 1;
+      }
+
+      if i >= body_tokens.len() {
+        break;
+      }
+
+      match body_tokens.get(i) {
+        Some(Token::LeftBrace(_)) => i += 1,
+        other => panic!(
+          "Expected '{{' after decorator branch signature, got {:?}",
+          other
+        ),
+      }
+
+      let start = i;
+      let mut brace_count = 1;
+      while i < body_tokens.len() && brace_count > 0 {
+        match &body_tokens[i] {
+          Token::LeftBrace(_) => brace_count += 1,
+          Token::RightBrace(_) => brace_count -= 1,
+          _ => {}
+        }
+        i += 1;
+      }
+      let end = i - 1;
+      let current_body = body_tokens[start..end].to_vec();
+
+      let sig_str = self.generate_code(signature_tokens.clone()).trim().to_string();
+
+      if sig_str == "_" {
+        common_body = current_body;
+      } else if sig_str.starts_with('(') && sig_str.ends_with(')') {
+        let inner_sig_str = &sig_str[1..sig_str.len() - 1];
+        let params: Vec<&str> = inner_sig_str.split(',').map(|s| s.trim()).collect();
+
+        if params.len() == 1 {
+          if params[0] == "_class" {
+            class_sig = signature_tokens;
+            class_body = current_body;
+          } else if params[0] == "_enum" {
+            enum_sig = signature_tokens;
+            enum_body = current_body;
+          }
+        } else if params.len() == 2 {
+          if params[0] == "_class" && params[1] == "method" {
+            class_method_sig = signature_tokens;
+            class_method_body = current_body;
+          } else if params[0] == "_enum" && params[1] == "variant" {
+            enum_variant_sig = signature_tokens;
+            enum_variant_body = current_body;
+          } else if params[0] == "_self" && params[1] == "value" {
+            param_sig = signature_tokens;
+            param_body = current_body;
+          }
+        }
+      }
+    }
+
+    let mut lua_code = String::from(
+      "function(...)\n    local arg1, arg2 = select(1, ...)\n",
+    );
+
+    if !common_body.is_empty() {
+      lua_code.push_str(
+        self.generate_code(common_body).as_str(),
+      );
+      lua_code.push('\n');
+    }
+
+    let mut first_if = true;
+    let mut if_or_elseif = || {
+      if first_if {
+        first_if = false;
+        "if"
+      } else {
+        "elseif"
+      }
+    };
+
+    // 1. param decorator
+    if !param_body.is_empty() {
+      let sig_str = self.generate_code(param_sig.clone());
+      let inner_sig_str = &sig_str[1..sig_str.len() - 1];
+      let body =
+        self.generate_code(param_body);
+      lua_code.push_str(&format!(
+        "    {} type(arg1) == \"table\" and arg1.__class and arg2 then\n",
+        if_or_elseif()
+      ));
+      lua_code.push_str(&format!("      local {} = arg1, arg2\n", inner_sig_str));
+      lua_code.push_str(&body);
+    }
+
+    // 2. class method decorator
+    if !class_method_body.is_empty() {
+      let sig_str = self.generate_code(class_method_sig.clone());
+      let inner_sig_str = &sig_str[1..sig_str.len() - 1];
+      let body = self.generate_code(class_method_body);
+      lua_code.push_str(&format!(
+        "    {} type(arg1) == \"table\" and arg1.__call_init and arg2 then\n",
+        if_or_elseif()
+      ));
+      lua_code.push_str(&format!("      local {} = arg1, arg2\n", inner_sig_str));
+      lua_code.push_str(&body);
+    }
+
+    // 3. class decorator
+    if !class_body.is_empty() {
+      let sig_str = self.generate_code(class_sig.clone());
+      let inner_sig_str = &sig_str[1..sig_str.len() - 1];
+      let body =
+        self.generate_code(class_body);
+      lua_code.push_str(&format!(
+        "    {} type(arg1) == \"table\" and arg1.__call_init and not arg2 then\n",
+        if_or_elseif()
+      ));
+      lua_code.push_str(&format!("      local {} = arg1\n", inner_sig_str));
+      lua_code.push_str(&body);
+    }
+
+    // 4. enum variant decorator
+    if !enum_variant_body.is_empty() {
+      let sig_str = self.generate_code(enum_variant_sig.clone());
+      let inner_sig_str = &sig_str[1..sig_str.len() - 1];
+
+      let mut variant_common_body = vec![];
+      let mut variant_static_body = vec![];
+      let mut variant_dynamic_body = vec![];
+      let mut i = 0;
+      while i < enum_variant_body.len() {
+        while i < enum_variant_body.len()
+          && matches!(&enum_variant_body[i], Token::Whitespace(_, _))
+        {
+          i += 1;
+        }
+        if i >= enum_variant_body.len() {
+          break;
+        }
+
+        let (sub_sig_tokens, next_i) = self.capture_expression(&enum_variant_body, i);
+        i = next_i;
+
+        while i < enum_variant_body.len()
+          && matches!(&enum_variant_body[i], Token::Whitespace(_, _))
+        {
+          i += 1;
+        }
+
+        if i >= enum_variant_body.len() {
+          break;
+        }
+
+        match enum_variant_body.get(i) {
+          Some(Token::LeftBrace(_)) => i += 1,
+          other => panic!(
+            "Expected '{{' after enum variant decorator branch signature, got {:?}",
+            other
+          ),
+        }
+
+        let start = i;
+        let mut brace_count = 1;
+        while i < enum_variant_body.len() && brace_count > 0 {
+          match &enum_variant_body[i] {
+            Token::LeftBrace(_) => brace_count += 1,
+            Token::RightBrace(_) => brace_count -= 1,
+            _ => {}
+          }
+          i += 1;
+        }
+        let end = i - 1;
+        let sub_body = enum_variant_body[start..end].to_vec();
+        let sub_sig_str = self.generate_code(sub_sig_tokens).trim().to_string();
+
+        if sub_sig_str == "_" {
+          variant_common_body = sub_body;
+        } else if sub_sig_str == "static" {
+          variant_static_body = sub_body;
+        } else if sub_sig_str == "dynamic" {
+          variant_dynamic_body = sub_body;
+        }
+      }
+
+      lua_code.push_str(&format!(
+        "    {} type(arg1) == \"table\" and arg1.__is_enum and arg2 then\n",
+        if_or_elseif()
+      ));
+      lua_code.push_str(&format!("      local {} = arg1, arg2\n", inner_sig_str));
+
+      if !variant_common_body.is_empty() {
+        lua_code.push_str(&self.generate_code(variant_common_body));
+      }
+      lua_code.push_str("\n      if type(arg2) == \"function\" then\n");
+      if !variant_dynamic_body.is_empty() {
+        lua_code.push_str(&self.generate_code(variant_dynamic_body));
+      }
+      lua_code.push_str("\n      else\n");
+      if !variant_static_body.is_empty() {
+        lua_code.push_str(&self.generate_code(variant_static_body));
+      }
+      lua_code.push_str("\n      end\n");
+    }
+
+    // 5. enum decorator
+    if !enum_body.is_empty() {
+      let sig_str = self.generate_code(enum_sig.clone());
+      let inner_sig_str = &sig_str[1..sig_str.len() - 1];
+      let body =
+        self.generate_code(enum_body);
+      lua_code.push_str(&format!(
+        "    {} type(arg1) == \"table\" and arg1.__is_enum and not arg2 then\n",
+        if_or_elseif()
+      ));
+      lua_code.push_str(&format!("      local {} = arg1\n", inner_sig_str));
+      lua_code.push_str(&body);
+    }
+
+    if !first_if {
+      lua_code.push_str("    end\n");
+    }
+
+    lua_code.push_str("  end");
+
+    self.process_macros(tokenize(&lua_code), path, conf)
+  }
+
   fn get_env(&self, name: &String) -> Option<String> {
     if let Some(value) = self.defs.get(name) {
       Some(value.clone())
@@ -2107,35 +2523,6 @@ end
     }
 
     (out, is_declaration, i)
-  }
-
-  fn capture_expression(&mut self, tokens: &[Token], start: usize) -> (Vec<Token>, usize) {
-    let mut out = Vec::new();
-    let mut i = start;
-    let mut paren = 0;
-
-    while i < tokens.len() {
-      match &tokens[i] {
-        Token::LeftBrace(_) if paren == 0 => break,
-
-        Token::LeftParen(_) => {
-          paren += 1;
-          out.push(tokens[i].clone());
-        }
-        Token::RightParen(_) => {
-          if paren == 0 {
-            break;
-          }
-          paren -= 1;
-          out.push(tokens[i].clone());
-        }
-
-        _ => out.push(tokens[i].clone()),
-      }
-      i += 1;
-    }
-
-    (out, i)
   }
 
   fn compile_match(

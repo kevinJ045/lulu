@@ -36,6 +36,51 @@ function namespace(tbl, chunk)
   return chunk(tbl)
 end
 
+function make_enum()
+  local e = {}
+  e.func = {}
+
+  function e.is(obj, variant)
+    if type(obj) ~= 'table' then return false end
+    if obj.__enum == nil then return false end
+    if variant then
+      if obj.__enum_var == nil then return false end
+      return obj.__enum_var == variant or obj.__enum_var == variant.__enum_var
+    end
+    return obj.__enum == e
+  end
+  
+  e.__is_enum = true
+  
+  return e
+end
+
+function make_enum_var(enum_table, vname, names, ...)
+  local o = {}
+  local args = {...}
+  for i, arg in ipairs(args) do
+    o[names[i] or i] = arg
+  end
+  o.__enum = enum_table
+  o.__enum_var = enum_table[vname] or vname
+  o.__is = function(a, b)
+    if type(b) == 'function' then return a.__enum_var == b end
+    if type(b) == 'table' and b.__enum_var then return a.__enum_var == b.__enum_var end
+    if type(b) == 'table' and b.__is_enum then return a.__enum == b end
+    return a.__enum_var == b or a == b
+  end
+  setmetatable(o, {
+    __index = function(tbl, key)
+      local item = enum_table.func[key]
+      if type(item) == 'function' then
+        return function(...) return item(o, ...) end
+      end
+      return item
+    end
+  })
+  return o
+end
+
 function make_class(class_raw, parent)
   local class = class_raw
   class.__index = class
@@ -82,7 +127,7 @@ function iseq(first, second)
     return true
   end
   
-  if instanceof(first, second) then
+  if first and type(first) == "table" and instanceof(first, second) then
     return true
   end
 
@@ -90,6 +135,7 @@ function iseq(first, second)
 end
 
 function instanceof(obj, class)
+  if not class and obj then return false end
   local cls = obj.__class
   while cls do
     if cls == class then
