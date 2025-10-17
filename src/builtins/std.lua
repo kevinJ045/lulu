@@ -63,11 +63,11 @@ function make_enum_var(enum_table, vname, names, ...)
   end
   o.__enum = enum_table
   o.__enum_var = enum_table[vname] or vname
-  o.__is = function(a, b)
-    if type(b) == 'function' then return a.__enum_var == b end
-    if type(b) == 'table' and b.__enum_var then return a.__enum_var == b.__enum_var end
-    if type(b) == 'table' and b.__is_enum then return a.__enum == b end
-    return a.__enum_var == b or a == b
+  o.__is = function(b)
+    if type(b) == 'function' then return o.__enum_var == b end
+    if type(b) == 'table' and b.__enum_var then return o.__enum_var == b.__enum_var end
+    if type(b) == 'table' and b.__is_enum then return o.__enum == b end
+    return o.__enum_var == b or o == b
   end
   setmetatable(o, {
     __index = function(tbl, key)
@@ -123,7 +123,11 @@ function iseq(first, second)
   local result = first == second
   if result then return result end
 
-  if first and type(first) == "table" and first.__is and first.__is(first, second) then
+  if first and type(first) == "table" and first.__is and first.__is(second) then
+    return true
+  end
+
+  if first and type(first) == "table" and type(second) == "table" and second.is and second.is(first) then
     return true
   end
   
@@ -237,7 +241,7 @@ end)
 
 
 enum! Option, {
-  Some(content)
+  Some(content),
   None
 }
 
@@ -249,7 +253,7 @@ Option.func.unwrap = function(item)
 end
 
 enum! Result, {
-  Ok(content)
+  Ok(content),
   Err(err)
 }
 
@@ -302,6 +306,48 @@ function into_collectible(name)
     return class
   end
 end
+
+function validate_type(...)
+  local types = {...}
+
+  return decorator! {
+    _ {
+      local verify = function(...)
+        local args = {...}
+        for i, arg in ipairs(args) do
+          if types[i] == '!' then
+
+          elseif type(arg) != types[i] and not iseq(arg, types[i]) then
+            local t = types[i]
+            if types[i] != "number" and types[i] != "string" then
+              t = f"abstract({tostring(types[i])})"
+            end
+            error(types[i] and f"Expected {t} for function at argument {i}. Found {type(arg)}" or (
+              #types > #args and f"Expected {#types} arguments for function, given {#args}" or f"Extra args for function."
+            ))
+          end
+        end
+        return args
+      end
+    }
+    (_class, method) {
+      return function(self, ...)
+        return method(self, unpack(verify(...)))
+      end
+    }
+    (_enum, variant) {
+      dynamic {
+        return function(...)
+          return variant(unpack(verify(...)))
+        end
+      }
+    }
+    (_self, value) {
+      return verify(value)[1]
+    }
+  }
+end
+
 
 class! @into_collectible("collect") Vec, {
   init(len) {

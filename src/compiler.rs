@@ -1253,7 +1253,11 @@ impl Compiler {
 
     for (vname, args, decorators) in &variants {
       if let Some(args) = args {
-        let args_list = args.into_iter().map(|x| format!("\"{}\"", x)).collect::<Vec<String>>().join(", ");
+        let args_list = args
+          .into_iter()
+          .map(|x| format!("\"{}\"", x))
+          .collect::<Vec<String>>()
+          .join(", ");
         lua.push_str(&format!(
             "{enum}.{vname} = function(...) return make_enum_var({enum}, '{vname}', {{ {args_list} }}, ...) end\n",
             enum = enum_name,
@@ -1286,7 +1290,7 @@ impl Compiler {
       let mut i = 0;
 
       while i < tokens.len() {
-        let (expr_tokens, next_i) = self.capture_expression(tokens, i);
+        let (expr_tokens, next_i) = self.capture_extra_expression(tokens, i);
         if expr_tokens.is_empty() {
           panic!(
             "Expected match pattern (identifier, string, number, call, or table) at {:?}",
@@ -1981,6 +1985,42 @@ end
     self.process_macros(tokens, path, conf)
   }
 
+  fn capture_extra_expression(&mut self, tokens: &[Token], start: usize) -> (Vec<Token>, usize) {
+    let mut out = Vec::new();
+
+    let mut i = start;
+
+    let mut paren = 0;
+
+    while i < tokens.len() {
+      match &tokens[i] {
+        Token::LeftBrace(_) if paren == 0 => break,
+
+        Token::LeftParen(_) => {
+          paren += 1;
+
+          out.push(tokens[i].clone());
+        }
+
+        Token::RightParen(_) => {
+          if paren == 0 {
+            break;
+          }
+
+          paren -= 1;
+
+          out.push(tokens[i].clone());
+        }
+
+        _ => out.push(tokens[i].clone()),
+      }
+
+      i += 1;
+    }
+
+    (out, i)
+  }
+
   fn capture_expression(&self, tokens: &[Token], start: usize) -> (Vec<Token>, usize) {
     let mut i = start;
     while i < tokens.len() && matches!(tokens[i], Token::Whitespace(_, _)) {
@@ -2080,7 +2120,10 @@ end
       let end = i - 1;
       let current_body = body_tokens[start..end].to_vec();
 
-      let sig_str = self.generate_code(signature_tokens.clone()).trim().to_string();
+      let sig_str = self
+        .generate_code(signature_tokens.clone())
+        .trim()
+        .to_string();
 
       if sig_str == "_" {
         common_body = current_body;
@@ -2111,14 +2154,10 @@ end
       }
     }
 
-    let mut lua_code = String::from(
-      "function(...)\n    local arg1, arg2 = select(1, ...)\n",
-    );
+    let mut lua_code = String::from("function(...)\n    local arg1, arg2 = select(1, ...)\n");
 
     if !common_body.is_empty() {
-      lua_code.push_str(
-        self.generate_code(common_body).as_str(),
-      );
+      lua_code.push_str(self.generate_code(common_body).as_str());
       lua_code.push('\n');
     }
 
@@ -2136,8 +2175,7 @@ end
     if !param_body.is_empty() {
       let sig_str = self.generate_code(param_sig.clone());
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
-      let body =
-        self.generate_code(param_body);
+      let body = self.generate_code(param_body);
       lua_code.push_str(&format!(
         "    {} type(arg1) == \"table\" and arg1.__class and arg2 then\n",
         if_or_elseif()
@@ -2163,8 +2201,7 @@ end
     if !class_body.is_empty() {
       let sig_str = self.generate_code(class_sig.clone());
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
-      let body =
-        self.generate_code(class_body);
+      let body = self.generate_code(class_body);
       lua_code.push_str(&format!(
         "    {} type(arg1) == \"table\" and arg1.__call_init and not arg2 then\n",
         if_or_elseif()
@@ -2260,8 +2297,7 @@ end
     if !enum_body.is_empty() {
       let sig_str = self.generate_code(enum_sig.clone());
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
-      let body =
-        self.generate_code(enum_body);
+      let body = self.generate_code(enum_body);
       lua_code.push_str(&format!(
         "    {} type(arg1) == \"table\" and arg1.__is_enum and not arg2 then\n",
         if_or_elseif()
@@ -2537,7 +2573,7 @@ end
     let mut i = 0;
 
     while i < tokens.len() {
-      let (expr_tokens, next_i) = self.capture_expression(tokens, i);
+      let (expr_tokens, next_i) = self.capture_extra_expression(tokens, i);
       if expr_tokens.is_empty() {
         panic!(
           "Expected match pattern (identifier, string, number, call, or table) at {:?}",
