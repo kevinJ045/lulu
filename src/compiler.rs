@@ -2615,7 +2615,7 @@ end
         .iter()
         .any(|t| matches!(t, Token::Identifier(v, _) if *v == "_".to_string()))
       {
-        branch_tokens.extend(tokenize("else"));
+        branch_tokens.extend(tokenize("else "));
         branch_tokens.extend(tokens[start..end].to_vec());
         branches.push((expr_tokens.clone(), branch_tokens));
         continue;
@@ -2627,15 +2627,65 @@ end
         branch_tokens.extend(tokenize("if "));
       }
 
-      let iscustom = !expr_tokens
-        .iter()
-        .any(|t| matches!(t, Token::Identifier(v, _) if *v == "val".to_string()));
-      if iscustom {
-        branch_tokens.extend(tokenize("iseq(val, "));
-      }
-      branch_tokens.extend(expr_tokens.clone());
-      if iscustom {
-        branch_tokens.extend(tokenize(")"));
+      let or_parts: Vec<Vec<Token>> = expr_tokens
+        .as_slice()
+        .split(|tok| matches!(tok, Token::Identifier(s, _) if s == "or"))
+        .map(|slice| {
+          if slice.is_empty() {
+            return Vec::new();
+          }
+          let first = slice
+            .iter()
+            .position(|t| !matches!(t, Token::Whitespace(_, _)))
+            .unwrap_or(slice.len());
+          let last = slice
+            .iter()
+            .rposition(|t| !matches!(t, Token::Whitespace(_, _)))
+            .unwrap_or(0);
+
+          if first > last {
+            return Vec::new();
+          }
+          slice[first..=last].to_vec()
+        })
+        .filter(|v| !v.is_empty())
+        .collect();
+
+      for (idx, part) in or_parts.iter().enumerate() {
+        let mut current_part = part.clone();
+        let has_not = if let Some(Token::Identifier(s, _)) = current_part.get(0) {
+          s == "not"
+        } else {
+          false
+        };
+
+        if has_not {
+          current_part.remove(0);
+          if !current_part.is_empty() {
+            if let Token::Whitespace(_, _) = &current_part[0] {
+              current_part.remove(0);
+            }
+          }
+        }
+
+        let iscustom = !current_part
+          .iter()
+          .any(|t| matches!(t, Token::Identifier(v, _) if *v == "val".to_string()));
+
+        if has_not {
+          branch_tokens.extend(tokenize("not "));
+        }
+
+        if iscustom {
+          branch_tokens.extend(tokenize("iseq(val, "));
+        }
+        branch_tokens.extend(current_part);
+        if iscustom {
+          branch_tokens.extend(tokenize(")"));
+        }
+        if idx < or_parts.len() - 1 {
+          branch_tokens.extend(tokenize(" or "));
+        }
       }
       branch_tokens.extend(tokenize(" then "));
       branch_tokens.extend(tokens[start..end].to_vec());

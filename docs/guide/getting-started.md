@@ -4,7 +4,7 @@ This guide will walk you through installing Lulu on your system.
 
 ## Linux & macOS
 
-For most Linux distributions(probs macos), you can install Lulu by running this:
+For most Linux distributions(probs macos too), you can install Lulu by running this:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kevinj045/lulu/main/install-linux.sh | bash
@@ -29,6 +29,13 @@ This will install the `lulu.exe` executable and add it to your user's `PATH`.
 ### Manual Installation
 
 You can also download the `.exe` installer or `.exe` itself from the [Latest Release page](https://github.com/kevinJ045/lulu/releases/latest) and run it.
+
+## Cargo installation
+
+You can also install with `cargo` if you have it:
+```bash
+cargo install lulu
+```
 
 ## Verifying Installation
 

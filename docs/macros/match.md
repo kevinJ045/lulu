@@ -14,10 +14,18 @@ local value = "case_b"
 match! value, {
   "case_a" {
     print("Matched A")
-  },
+  }
   "case_b" {
     print("Matched B")
-  },
+  }
+  -- Multiple cases
+  "case_c" or "case_d" {
+    print("Either C or D")
+  }
+  -- Negatives
+  not "case_e" {
+    print("Not E")
+  }
   -- The `_` pattern is a wildcard that matches anything
   _ {
     print("Default case")
@@ -40,7 +48,7 @@ match! result, {
     -- The `val` variable holds the enum instance
     -- and its contents can be accessed by name
     print(f"Success: {val.result}")
-  },
+  }
   MyResult.Failure {
     print(f"Error: {val.error}")
   }
@@ -56,7 +64,7 @@ If you use the `return` keyword inside the branches, the `match!` macro can be u
 local message = match! result, {
   MyResult.Success {
     return f"Success: {val.result}"
-  },
+  }
   MyResult.Failure {
     return f"Error: {val.error}"
   }
@@ -75,7 +83,7 @@ local x = 10
 match! x, {
   (val > 5) {
     print("x is greater than 5")
-  },
+  }
   (val <= 5) {
     print("x is 5 or less")
   }
