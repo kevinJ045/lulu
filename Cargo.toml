@@ -11,6 +11,17 @@ description = "A mini lua runtime"
 name = "lulu"
 path = "src/lib.rs"
 
+[features]
+default = ["ui"]
+
+base = []
+
+general = ["ui", "serve"]
+
+ui = ["egui", "eframe"]
+serve = ["axum"]
+
+
 [dependencies]
 mlua = { version = "0.11.4", features = ["luajit", "vendored", "async", "macros", "serde", "send"] }
 clap = {version = "4.5", features = ["derive"]}
@@ -29,3 +40,6 @@ anyhow = "1.0.100"
 zip = "5.1.1"
 flate2 = "1.1.4"
 tar = "0.4.42"
+egui = { version = "0.27", optional = true, package = "egui" }
+eframe = { version = "0.27", optional = true, package = "eframe" }
+axum = { version = "0.7", optional = true }

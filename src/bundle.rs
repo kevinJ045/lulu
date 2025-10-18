@@ -1,4 +1,5 @@
 use crate::conf::{conf_to_string, load_lulu_conf_from_bytecode};
+use crate::flavor::current_flavor_id;
 use crate::lulu::{LuLib, Lulu, LuluModSource};
 use crate::util::lua_to_bytecode;
 use std::collections::HashMap;
@@ -59,7 +60,9 @@ pub fn write_bundle<W: Write>(
 
   writer.write_all(&total_size.to_le_bytes())?;
   writer.write_all(&module_count.to_le_bytes())?;
-  writer.write_all(b"LUL!")?;
+  writer.write_all(b"LUL")?;
+  writer.write_all(current_flavor_id().to_string().as_bytes())?;
+  writer.write_all(b"!")?;
 
   Ok(())
 }
@@ -80,10 +83,10 @@ fn load_bundle_from_reader<R: Read + Seek>(
   reader: &mut R,
 ) -> std::io::Result<HashMap<String, LuLib>> {
   reader.seek(SeekFrom::End(-20))?;
-  let mut footer = [0u8; 20];
+  let mut footer = [0u8; 24];
   reader.read_exact(&mut footer)?;
 
-  if &footer[16..20] != b"LUL!" {
+  if &footer[16..24] != format!("LUL{}!", current_flavor_id()).as_bytes() {
     return Err(std::io::Error::new(
       std::io::ErrorKind::InvalidData,
       "Invalid bundle magic",

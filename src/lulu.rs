@@ -1,8 +1,12 @@
 use crate::compiler::Compiler;
 use crate::conf::{LuluConf, find_lulu_conf, load_lulu_conf};
-use crate::ops;
-use mlua::{Lua, chunk};
+use crate::flavor::{current_flavor_ops, current_flavor_scripts};
+use mlua::{chunk, Lua};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
+use crate::ui;
 
 const STD_FILE: &str = include_str!("./builtins/std.lua");
 
@@ -25,7 +29,7 @@ pub struct LuluMod {
   pub conf: Option<LuluConf>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Lulu {
   pub mods: Vec<LuluMod>,
   pub lua: Lua,
@@ -33,6 +37,10 @@ pub struct Lulu {
   pub current: Option<PathBuf>,
   pub compiler: Compiler,
   std: String,
+  // UI State
+  ui_command_receiver: Option<Receiver<ui::UiCommand>>,
+  ui_context: Option<ui::LuaUiContext>,
+  ui_should_run: Arc<AtomicBool>,
 }
 
 impl Lulu {
@@ -52,6 +60,10 @@ impl Lulu {
       current,
       compiler,
       std,
+      // UI State
+      ui_command_receiver: None,
+      ui_context: None,
+      ui_should_run: Arc::new(AtomicBool::new(false)),
     }
   }
 
@@ -85,7 +97,7 @@ impl Lulu {
       }
     }
 
-    ops::register_ops(&self.lua, self)?;
+    current_flavor_ops(&self.lua, self)?;
 
     self
       .lua
@@ -104,6 +116,21 @@ impl Lulu {
       .exec()?;
 
     self.lua.load(self.std.clone()).set_name("std").exec()?;
+
+    current_flavor_scripts(&self.lua, self)?;
+
+    // --- UI Integration ---
+    let (sender, receiver) = std::sync::mpsc::channel();
+    self.ui_command_receiver = Some(receiver);
+
+    let context = ui::LuaUiContext {
+        command_sender: sender,
+        id_generator: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+        should_run: self.ui_should_run.clone(),
+    };
+    self.ui_context = Some(context.clone());
+    self.lua.globals().set("ui", context)?;
+    // --- End UI Integration ---
 
     Ok(())
   }
@@ -322,45 +349,28 @@ impl Lulu {
     Ok(lmod.name.clone())
   }
 
-  pub async fn exec_final(&mut self, name: &str) -> mlua::Result<mlua::Value> {
+  pub fn exec_final(&mut self, name: &str) -> mlua::Result<mlua::Value> {
     let result = self.exec_mod(name);
 
-    let scheduler: mlua::Function = self
-      .lua
-      .globals()
-      .get::<mlua::Table>("coroutine")?
-      .get("resume")?;
-    let sched_co: mlua::Value = self
-      .lua
-      .globals()
-      .get::<mlua::Table>("Future")?
-      .get("scheduler")?;
-
-    loop {
-      let active = scheduler.call::<mlua::Value>(sched_co.clone())?;
-      match active {
-        mlua::Value::Boolean(true) | mlua::Value::Nil => {
-          tokio::task::yield_now().await;
+    // If a UI is requested, run it. This is a blocking call.
+    if self.ui_should_run.load(Ordering::Relaxed) {
+        if let (Some(receiver), Some(context)) = (self.ui_command_receiver.take(), self.ui_context.take()) {
+            // The original async scheduler loop is bypassed, as eframe takes over the main thread.
+            // Any pending async Lua tasks should be completed before ui.run() is called in the script.
+            ui::run(self.lua, receiver, context);
+            // ui::run is blocking and never returns, so we effectively exit here.
+            return Ok(mlua::Value::Nil);
         }
-        mlua::Value::Boolean(false) => {
-          break;
-        }
-        _ => break,
-      }
     }
-
-    self
-      .lua
-      .globals()
-      .get::<mlua::Function>("join_threads")?
-      .call::<()>(())?;
-
+    
+    // Fallback to original behavior if no UI is run.
+    // The async scheduler loop is removed as this function is now synchronous.
     result
   }
 
-  pub async fn exec_entry_mod_path(&mut self, path: PathBuf) -> mlua::Result<()> {
+  pub fn exec_entry_mod_path(&mut self, path: PathBuf) -> mlua::Result<()> {
     let mainname = self.entry_mod_path(path)?;
-    self.exec_final(mainname.as_str()).await?;
+    self.exec_final(mainname.as_str())?;
 
     Ok(())
   }

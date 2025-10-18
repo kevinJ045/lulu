@@ -8,3 +8,8 @@ pub mod package_manager;
 pub mod project;
 pub mod resolver;
 pub mod util;
+pub mod flavor;
+
+
+#[cfg(feature = "ui")]
+mod ui;
