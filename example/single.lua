@@ -74,7 +74,7 @@ local m = "sss"
 
 print(match! m, {
   "ssss" {
-    return "IT IS SSS"
+    return "IT IS SSSS"
   }
   "not ss" {
     return "meh"

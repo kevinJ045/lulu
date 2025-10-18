@@ -1,6 +1,24 @@
-enum! Token, {
-  @validate_type("string")
-  String(name)
+
+local Something = {
+  value = "sds",
+  valuef = function(a) return a end
 }
 
-print(Token.String(11))
+local value = "ss"
+
+match! value, {
+  not Something.value or Something.valuef("fff") {
+    print("not sds or fff")
+  }
+  (val == "ss") {
+    print("ss")
+  }
+  "sss" or "ss" or "s" {
+    print("matched ss")
+    -- can have multiple statements chained with or
+  }
+  "dd" {
+    -- this exists
+  }
+  _ {}
+}

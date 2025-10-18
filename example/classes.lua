@@ -45,7 +45,8 @@ class! Animal(name), {
   }
 }
 
-class! @loud_speak @speaks("Meow!") Cat:Animal, {}
+class! @into_collectible("collect") @loud_speak @speaks("Meow!") Cat:Animal, {}
 
-local c = Cat("Whi")
-c:speak()
+local c = Cat("Whi"):into()
+c.walk()
+c.speak()
