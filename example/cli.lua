@@ -1,24 +1,36 @@
 
-local Something = {
-  value = "sds",
-  valuef = function(a) return a end
+type! {
+  mytype = string
+  Vec2 = { x: number, y: number }
 }
 
-local value = "ss"
+class! MyClass, {}
+class! MyClass2:MyClass, {}
 
-match! value, {
-  not Something.value or Something.valuef("fff") {
-    print("not sds or fff")
+let! a: mytype = "sjsj";
+let! b: Vec2 = {
+  x = 10,
+  y = 10
+};
+let! c: MyClass = MyClass2();
+
+
+class! Vec2Class(x, y), {}
+
+let! d: Vec2 = Vec2Class();
+
+
+
+let! e: string or number  = "something";
+
+match! ~e, {
+  string {
+    -- if string
   }
-  (val == "ss") {
-    print("ss")
+  Vec2 {
+    -- if vec2
   }
-  "sss" or "ss" or "s" {
-    print("matched ss")
-    -- can have multiple statements chained with or
+  mytype {
+    -- if mytype
   }
-  "dd" {
-    -- this exists
-  }
-  _ {}
 }

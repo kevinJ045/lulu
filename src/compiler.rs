@@ -804,6 +804,15 @@ impl Compiler {
             i += 1;
           }
         }
+        Token::Symbol(sym, _) if sym == ";" => {
+          if brace_count == 0 && paren_count == 0 {
+            i += 1;
+            break;
+          } else {
+            current_arg.push(tokens[i].clone());
+            i += 1;
+          }
+        }
         Token::Comma(_) if brace_count == 0 && paren_count == 0 => {
           if !current_arg.is_empty() {
             args.push(current_arg.clone());
