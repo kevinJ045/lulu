@@ -89,3 +89,19 @@ set:add("value")
 
 ### HashSet API
 - `:add(value)`, `:has(value)`, `:remove(value)`, `:values()`, `:clear()`
+
+## `ByteArray`
+
+`ByteArray` is a simple Rust-backed byte management utility that manages a `Uint8Array` or `Vec<u8>`.
+
+```lua
+local mybytes = ByteArray({ ... })
+
+print(mybytes:to_string()) -- into string
+print(mybytes:to_table()) -- into lua table (too slow)
+print(mybytes:len()) -- the length
+```
+
+### ByteArray API
+- `:to_table()`, `:len()`, `:to_hex()`, `:to_string()`, `:clear()`
+- `:copy()`, `:slice(start, stop)`, `:pop()`, `:push(byte)`, `:extend_table(lua_table)`, `:extend(bytearray)`, `:map(fn)`

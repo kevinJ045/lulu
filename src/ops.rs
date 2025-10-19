@@ -18,14 +18,104 @@ use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::io::{Read, Write};
-use std::sync::{Mutex};
-use std::thread::{JoinHandle};
+use std::sync::Mutex;
+use std::thread::JoinHandle;
 use tokio::time;
 use zip::write::ExtendedFileOptions;
 use zip::{ZipWriter, write::FileOptions};
 
 lazy_static::lazy_static! {
   static ref THREADS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
+}
+
+#[derive(Clone)]
+struct LuluByteArray {
+  bytes: Vec<u8>,
+}
+
+impl mlua::UserData for LuluByteArray {
+  fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_method("to_table", |_, this, ()| Ok(this.bytes.clone()));
+    methods.add_method("len", |_, this, ()| Ok(this.bytes.len()));
+    methods.add_method("to_hex", |_, this, ()| {
+      Ok(
+        this
+          .bytes
+          .iter()
+          .map(|b| format!("{:02x}", b))
+          .collect::<String>(),
+      )
+    });
+
+    methods.add_method("to_string", |_lua, this, encoding: Option<String>| {
+      let enc_name = encoding.unwrap_or_else(|| "utf-8".to_string());
+      match enc_name.to_lowercase().as_str() {
+        "utf-8" => Ok(String::from_utf8_lossy(&this.bytes).to_string()),
+        _ => Err(mlua::Error::RuntimeError(format!(
+          "Unsupported encoding '{}'",
+          enc_name
+        ))),
+      }
+    });
+
+    methods.add_method_mut("extend", |_, this, other: mlua::AnyUserData| {
+      let other_bytes = other.borrow::<LuluByteArray>()?;
+      this.bytes.extend(&other_bytes.bytes);
+      Ok(())
+    });
+
+    methods.add_method_mut("extend_table", |_, this, other: Vec<u8>| {
+      this.bytes.extend(other);
+      Ok(())
+    });
+
+    methods.add_method_mut("push", |_, this, byte: u8| {
+      this.bytes.push(byte);
+      Ok(())
+    });
+
+    methods.add_method_mut("pop", |_, this, ()| Ok(this.bytes.pop()));
+
+    methods.add_method_mut("clear", |_, this, ()| {
+      this.bytes.clear();
+      Ok(())
+    });
+
+    methods.add_method("slice", |_, this, (start, stop): (usize, usize)| {
+      let start = start.saturating_sub(1);
+      let stop = stop.min(this.bytes.len());
+      Ok(
+        LuluByteArray {
+          bytes: this.bytes[start..stop].to_vec(),
+        }
+      )
+    });
+
+    methods.add_method("copy", |_, this, ()| {
+      Ok(
+        LuluByteArray {
+          bytes: this.bytes.clone(),
+        }
+      )
+    });
+
+    methods.add_method("new", |_, _, bytes: Vec<u8>| {
+      Ok(
+        LuluByteArray {
+          bytes,
+        }
+      )
+    });
+
+    methods.add_method("map", |_, this, func: mlua::Function| {
+      let mapped = this
+        .bytes
+        .iter()
+        .map(|b| func.call::<u8>(*b).unwrap_or(*b))
+        .collect();
+      Ok(LuluByteArray { bytes: mapped })
+    });
+  }
 }
 
 #[derive(Clone)]
@@ -563,15 +653,19 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     let lulu_rc = lulu.clone();
     lua.create_function(move |_, name: String| {
       let lulu = &lulu_rc;
-      if let Some(module) = lulu
-        .mods
-        .iter()
-        .find(|m| m.name == format!("bytes://{}", name))
-      {
-        match &module.source {
-          LuluModSource::Bytecode(bytes) => Ok(bytes.clone()),
-          LuluModSource::Code(code) => Ok(code.as_bytes().to_vec()),
-        }
+      if let Some(module) = lulu.mods.iter().find(|m| {
+        m.name
+          == (if name.starts_with("bytes://") {
+            name.clone()
+          } else {
+            format!("bytes://{}", name)
+          })
+      }) {
+        let bytes = match &module.source {
+          LuluModSource::Bytecode(bytes) => bytes.clone(),
+          LuluModSource::Code(code) => code.as_bytes().to_vec(),
+        };
+        Ok(LuluByteArray { bytes })
       } else {
         Err(mlua::Error::RuntimeError(format!(
           "Module '{}' not found",
@@ -678,11 +772,11 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
 
   lua.globals().set(
     "read",
-    lua.create_function(|lua, path: String| {
+    lua.create_function(|_, path: String| {
       let mut file = fs::File::open(&path)?;
       let mut buffer = Vec::new();
       file.read_to_end(&mut buffer)?;
-      lua.create_string(&buffer)
+      Ok(LuluByteArray { bytes: buffer })
     })?,
   )?;
 
@@ -777,6 +871,11 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     })
   })?;
   lua.globals().set("HashMap", map_ctor)?;
+  lua.globals().set("ByteArray", lua.create_function(|_, bytes: Vec<u8>| {
+    Ok(LuluByteArray {
+      bytes,
+    })
+  })?)?;
 
   let spawn_fn = lua.create_function(|_, code: String| -> mlua::Result<()> {
     let handle = std::thread::spawn(move || {
@@ -788,12 +887,15 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   })?;
   lua.globals().set("spawn_thread", spawn_fn)?;
 
-  lua.globals().set("join_threads", lua.create_function(|_, ()| {
-    for handle in THREADS.lock().unwrap().drain(..) {
-      let _ = handle.join();
-    }
-    Ok(())
-  })?)?;
+  lua.globals().set(
+    "join_threads",
+    lua.create_function(|_, ()| {
+      for handle in THREADS.lock().unwrap().drain(..) {
+        let _ = handle.join();
+      }
+      Ok(())
+    })?,
+  )?;
 
   create_std(lua)?;
 

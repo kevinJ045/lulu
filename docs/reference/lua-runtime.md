@@ -14,7 +14,7 @@ Lulu provides a set of global functions and modules available to all your `.lua`
 ## Filesystem (FS)
 
 - **`reads(path)`**: Reads the entire content of a file into a string.
-- **`read(path)`**: Reads the entire content of a file into a table of bytes.
+- **`read(path)`**: Reads the entire content of a file into a [ByteArray](./helper-classes.md#bytearray).
 - **`exists(path)`**: Returns `true` if a file or directory exists at the path.
 - **`mkdir(...)`**: Recursively creates a directory.
 - **`cp(source, destination)`**: Copies a single file.

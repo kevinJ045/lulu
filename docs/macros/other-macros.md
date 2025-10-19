@@ -26,14 +26,17 @@ This macro is specially useful in case you don't want to add these files into yo
 
 > Generating Macro
 
-Includes the entire content of a file as a raw byte sequence (as a Lua table). This is useful for embedding assets like images, sounds, or text files directly into your executable.
+Includes the entire content of a file as a raw byte sequence (as a [ByteArray](../reference//helper-classes.md#bytearray)). This is useful for embedding assets like images, sounds, or text files directly into your executable.
 
 ```lua
-include_bytes! my_asset, { "./assets/icon.png" }
+local my_asset = include_bytes! { "./assets/icon.png" }
 -- or ';' terminated
-include_bytes! my_asset, "./assets/icon.png";
+local my_asset = include_bytes! "./assets/icon.png";
+-- you can also include strings as
+local txtfile = include_string! "./assets/file.txt";
 
--- `my_asset` is now a string containing the binary data of the file.
+-- `my_asset` is now a ByteArray containing the binary data of the file.
+-- `txtfile` is now a string containing the file text.
 ```
 
 ## `for_each!` & `for_pairs!`

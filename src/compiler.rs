@@ -188,8 +188,16 @@ impl MacroRegistry {
       "include_bytes".to_string(),
       MacroDefinition {
         name: "include_bytes".to_string(),
-        params: vec!["name".to_string(), "expr".to_string()],
-        body: tokenize("local $name = bytes_from($expr)"),
+        params: vec!["expr".to_string()],
+        body: tokenize("bytes_from($expr)"),
+      },
+    );
+    macros.insert(
+      "include_string".to_string(),
+      MacroDefinition {
+        name: "include_string".to_string(),
+        params: vec!["expr".to_string()],
+        body: tokenize("include_bytes! { $expr }:to_string()"),
       },
     );
 
@@ -883,24 +891,21 @@ impl Compiler {
         .importmap
         .insert(name.clone(), (cpath.clone(), path.clone(), conf.clone()));
       cargs[1] = vec![Token::String(format!("{}", name), 0)];
-      self.substitute_macro_params(&macro_def.body, &macro_def.params, &cargs)
+      self.substitute_macro_params(&macro_def.body, &macro_def.params, &cargs, path.clone(), conf.clone())
     } else if macro_name == "include_bytes" {
-      let mut cargs = args.clone();
-      let vname = get_token_string(&args[0][0]).unwrap();
-      let name = format!("bytes://{}", vname);
-      let cpath = get_token_string(&args[1][0]).unwrap();
+      let cpath = get_token_string(&args[0][0]).unwrap();
+      let name = format!("bytes://{}", crate::util::normalize_name(cpath));
 
       self
         .importmap
         .insert(name.clone(), (cpath.clone(), path.clone(), conf.clone()));
-      cargs[1] = vec![Token::String(format!("{}", vname), 0)];
-      self.substitute_macro_params(&macro_def.body, &macro_def.params, &cargs)
+      self.substitute_macro_params(&macro_def.body, &macro_def.params, &[vec![Token::String(format!("{}", name), 0)]], path.clone(), conf.clone())
     } else if macro_name == "package" {
       let name = get_token_string(&args[0][0]).unwrap();
       self.last_mod = Some(name.clone());
       Vec::new()
     } else {
-      self.substitute_macro_params(&macro_def.body, &macro_def.params, &args)
+      self.substitute_macro_params(&macro_def.body, &macro_def.params, &args, path.clone(), conf.clone())
     };
     result.extend(expanded);
 
@@ -2735,10 +2740,12 @@ end
   }
 
   fn substitute_macro_params(
-    &self,
+    &mut self,
     body: &[Token],
     param_names: &[String],
     args: &[Vec<Token>],
+    path: Option<String>,
+    conf: Option<LuluConf>,
   ) -> Vec<Token> {
     let mut result = Vec::new();
 
@@ -2765,7 +2772,7 @@ end
       }
     }
 
-    result
+    self.process_macros(result, path, conf)
   }
 
   fn generate_code(&self, tokens: Vec<Token>) -> String {

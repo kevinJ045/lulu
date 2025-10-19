@@ -233,6 +233,15 @@ impl Lulu {
 
     env.set("lookup_dylib", lookup_dylib)?;
 
+    let current = self.current.clone();
+    env.set(
+      "path_resolve",
+      self.lua.create_function(move |_, name: String| {
+        let path = std::fs::canonicalize(current.clone().unwrap_or(PathBuf::from(".")))?;
+        Ok(path.join(name))
+      })?,
+    )?;
+    
     let using = self
       .lua
       .load(chunk! {
