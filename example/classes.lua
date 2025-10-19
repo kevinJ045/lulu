@@ -50,3 +50,12 @@ class! @into_collectible("collect") @loud_speak @speaks("Meow!") Cat:Animal, {}
 local c = Cat("Whi"):into()
 c.walk()
 c.speak()
+
+
+class! Classic(@validate_type("string") #name, @validate_type("number") #id);
+
+local c = Classic {
+  name = "ff",
+  id = 33
+}
+fprint(c)

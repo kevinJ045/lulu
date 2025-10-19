@@ -1603,31 +1603,44 @@ impl Compiler {
         continue;
       }
 
-      let name_str = self.generate_code(name_tokens.clone()).trim().to_string();
+      let mut name_str = self.generate_code(name_tokens.clone()).trim().to_string();
+      
+      if name_str == "_" {
+        arg_index += 1;
+        continue;
+      }
+
+      let res_str = if name_str.starts_with("#") {
+        name_str = name_str[1..].to_string();
+        format!("type(args[{arg_index}]) == \"table\" and args[{arg_index}].{name_str} or nil")
+      } else {
+        let ind = arg_index;
+        arg_index += 1;
+        format!("args[{ind}]")
+      };
 
       let (assign_target, assign_expr) = if name_str.contains('.') {
-        (name_str.clone(), format!("args[{arg_index}]"))
+        (name_str.clone(), res_str)
       } else if name_str.starts_with('&') {
         (
           name_str.trim_start_matches('&').to_string(),
-          format!("args[{arg_index}]"),
+          res_str
         )
       } else {
-        (format!("self.{name_str}"), format!("args[{arg_index}]"))
+        (format!("self.{name_str}"), res_str)
       };
 
       if !decorators.is_empty() {
         let mut expr = assign_expr.clone();
         for deco in decorators {
           let deco_str = self.generate_code(deco);
-          expr = format!("{deco_str}(self, {expr})");
+          expr = format!("{deco_str}(self, {expr}, \"{name_str}\")");
         }
         self_assignments_decorated.push_str(&format!("{assign_target} = {expr}\n"));
       } else {
         self_assignments.push_str(&format!("{assign_target} = {assign_expr}\n"));
       }
-
-      arg_index += 1;
+      
     }
 
     let init_line = if let Some(parent) = parent_name.clone() {

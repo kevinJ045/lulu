@@ -156,6 +156,35 @@ class! Cat:Animal, (name, voice) {
 
 ```
 
+## Named attributes
+
+Instead of using indexes for attributes, you can use `#` in the parameter name to make it object based
+
+```lua
+
+class! Person(#name, #id);
+
+-- Call with:
+local person = Person {
+  name = "John",
+  id = 0
+}
+
+-- You can also do multiple values as:
+
+class! Person(#name, #id, ., #city);
+
+-- And call with:
+
+local person = Person({
+  name = "John",
+  id = 0
+}, {
+  city = "my-city"
+})
+
+```
+
 ## Decorators
 
 The class! macro also supports experimental decorators for classes, methods, and parameters, allowing for powerful metaprogramming.
