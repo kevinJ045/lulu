@@ -1,13 +1,7 @@
 
-spread! mytable, {
-  first,
-  _,
-  ...thing,
-  last_1,
-  named: name,
-  &named,
-  last_2
-}
+local bytes = include_string! "./dyn.lua";
+print(bytes)
+
 
 -- type! {
 --   mytype = string
