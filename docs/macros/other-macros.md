@@ -11,6 +11,8 @@ Lets you include a Lua file as a module at compile time, similar to adding it to
 ```lua
 -- This line...
 import! utils, { "./utils.lua" }
+-- or ';' terminated
+import! utils, "./utils.lua";
 
 -- ...is compiled into this:
 local utils = require("utils")
@@ -28,6 +30,8 @@ Includes the entire content of a file as a raw byte sequence (as a Lua table). T
 
 ```lua
 include_bytes! my_asset, { "./assets/icon.png" }
+-- or ';' terminated
+include_bytes! my_asset, "./assets/icon.png";
 
 -- `my_asset` is now a string containing the binary data of the file.
 ```
@@ -105,6 +109,91 @@ guard! {
 }, {
   "User does not have admin rights!"
 }
+```
+
+## `collect!`
+
+> Generating Macro
+
+Collects variables into a table.
+
+```lua
+collect! {
+  name,
+  id,
+  something = some_other_thing
+}
+-- into
+{
+  name = name,
+  id = id,
+  something = some_other_thing
+}
+
+-- for objects:
+
+collect! {
+  name,
+  id,
+  ..array,
+  ...some_table
+}
+
+-- into
+
+(function()
+  local _t = {
+    name = name,
+    id = id
+  }
+  for k,v in pairs(array) do
+    _t[k] = v
+  end
+  for k,v in ipairs(some_table) do
+    _t[k] = v
+  end
+  return _t
+end)()
+```
+
+## `spread!`
+
+> Generating Macro
+
+Spreads an array/table into local variables.
+
+```lua
+-- while you can do:
+local first, _, third = unpack({ 1, 2, 3 })
+
+-- you can do this for more complex spreading
+spread! mytable, {
+  first,
+  ...last
+}
+
+-- into
+local first = mytable[1]
+local last = { unpack(mytable, 2, #mytable) }
+
+-- you can do all these:
+spread! mytable, {
+  first,
+  _, -- skipped,
+  ...thing,
+  last_1,
+  &named,
+  named_by_key: name,
+  last_2
+}
+
+-- into
+local first = mytable[1]
+local thing = { unpack(mytable, 3, #mytable - 3) }
+local last_1 = mytable[4]
+local named = mytable.named
+local named_by_key = mytable.name
+local last_2 = mytable[5]
 ```
 
 ## `repeat_n!`
