@@ -703,3 +703,17 @@ function default_to(default)
     return value or default
   end
 end
+
+
+class! @into_collectible("collect") Sandbox, {
+  init(){
+    self.env = {}
+  }
+  set(key, val) {
+    self.env[key] = val
+    return self
+  }
+  eval(code, name){
+    return exec_sandboxed(code, name or "lulu::sandbox", self.env)
+  }
+}

@@ -1,8 +1,4 @@
 
-class! Classic(@validate_type("string") #name, @validate_type("number") #id);
+local s = Sandbox():into()
 
-local c = Classic {
-  name = "ff",
-  id = 33
-}
-fprint(c)
+print(s.set('kk', "djjd").set('print', print).eval("kk"))

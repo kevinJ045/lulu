@@ -69,8 +69,30 @@ pub fn write_bin(output: &PathBuf, bytes: HashMap<String, LuLib>) -> std::io::Re
   write_bundle(&mut bin, bytes)
 }
 
+static EXEC_PATH: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+fn get_exec_path() -> PathBuf {
+  let mut guard = EXEC_PATH.lock().unwrap();
+
+  if let Some(path) = &*guard {
+    return path.clone();
+  }
+
+  let path = std::env::var("LULU_EXEC_PATH")
+    .map(PathBuf::from)
+    .unwrap_or_else(|_| std::env::current_exe().unwrap());
+
+  *guard = Some(path.clone());
+  path
+}
+
+pub fn set_exec_path<P: Into<PathBuf>>(path: P) {
+  let mut guard = EXEC_PATH.lock().unwrap();
+  *guard = Some(path.into());
+}
+
 pub fn make_bin(output: &PathBuf, bytes: HashMap<String, LuLib>) -> std::io::Result<()> {
-  let exe_path = std::env::current_exe()?;
+  let exe_path = get_exec_path();
   std::fs::copy(&exe_path, output)?;
   write_bin(output, bytes)?;
   Ok(())
@@ -164,7 +186,7 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
   for (name, data) in mods.iter() {
     let conf = if let Some(confbytes) = data.conf.clone() {
       let conf = load_lulu_conf_from_bytecode(&lulu.lua, confbytes)?;
-      
+
       if let Some(macros) = conf.macros.clone() {
         lulu.compiler.compile(&macros, None, None);
       }

@@ -1,4 +1,4 @@
-use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle};
+use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle, set_exec_path};
 use crate::cli::{CacheCommand, Cli, Commands};
 use crate::lulu::Lulu;
 use crate::package_manager::PackageManager;
@@ -61,11 +61,14 @@ macro_rules! into_exec_command {
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<()> {
   if let Some(mods) = bundle::load_embedded_scripts() {
-    do_error!(run_bundle(
-      mods,
-      std::env::args().collect(),
-      Some(std::env::current_exe()?.parent().unwrap().to_path_buf())
-    ).await);
+    do_error!(
+      run_bundle(
+        mods,
+        std::env::args().collect(),
+        Some(std::env::current_exe()?.parent().unwrap().to_path_buf())
+      )
+      .await
+    );
     Ok(())
   } else {
     let cli = Cli::parse();
@@ -79,7 +82,8 @@ async fn main() -> Result<()> {
               mods,
               args.clone(),
               Some(file.parent().unwrap().to_path_buf()),
-            ).await
+            )
+            .await
           } else {
             let mut lulu = Lulu::new(
               Some(args.clone()),
@@ -92,10 +96,7 @@ async fn main() -> Result<()> {
       }
       Commands::Compile { file } => {
         let path = std::fs::canonicalize(file)?;
-        let mut lulu = Lulu::new(
-          None,
-          Some(path.clone().parent().unwrap().to_path_buf()),
-        );
+        let mut lulu = Lulu::new(None, Some(path.clone().parent().unwrap().to_path_buf()));
         println!("{}", lulu.compile(path.clone())?);
         Ok(())
       }
@@ -210,6 +211,29 @@ async fn main() -> Result<()> {
               let bytes = std::fs::read(file_path)?;
               let mut lulu = larc.lock().unwrap();
               lulu.add_mod_from_bytecode(format!("bytes://{}", name), bytes, None);
+              Ok(())
+            })?,
+          )?;
+
+          lua.globals().set(
+            "download_file",
+            lua.create_async_function(async move |_, url: String| {
+              let pkg_manager = PackageManager::new().map_err(|e| {
+                eprintln!("Failed to initialize package manager: {}", e);
+                mlua::Error::external(e)
+              })?;
+
+              pkg_manager.download_file(&url).await.map_err(|e| {
+                eprintln!("Failed to download file: {}", e);
+                mlua::Error::external(e)
+              })
+            })?,
+          )?;
+
+          lua.globals().set(
+            "set_stub",
+            lua.create_function(move |_, path: String| {
+              set_exec_path(path);
               Ok(())
             })?,
           )?;

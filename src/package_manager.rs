@@ -89,6 +89,29 @@ impl PackageManager {
     Ok(package_info)
   }
 
+  pub async fn download_file(&self, url: &str) -> Result<PathBuf> {
+    let cache_path = self.get_package_cache_path(url);
+
+    if !self.is_cached(url) {
+      self.download_url(url, &cache_path).await?;
+    }
+
+    Ok(cache_path)
+  }
+
+  pub async fn download_url(&self, url: &str, cache_path: &Path) -> Result<()> {
+    Ok(if url.ends_with(".lulib") {
+      create_dirs(cache_path)?;
+      self.download_lulib_package(url, cache_path, None).await?;
+    } else if url.ends_with(".zip") {
+      self.download_and_extract_zip(url, cache_path).await?;
+    } else if url.ends_with(".tar.gz") || url.ends_with(".tgz") {
+      self.download_and_extract_tar_gz(url, cache_path).await?;
+    } else {
+      self.download_rogue_file(url, cache_path).await?;
+    })
+  }
+
   pub async fn fetch_package(&self, url: &str, cache_path: &Path) -> Result<()> {
     fs::create_dir_all(cache_path)?;
 
@@ -97,15 +120,8 @@ impl PackageManager {
     } else if url.starts_with("http://") || url.starts_with("https://") {
       if url.ends_with(".git") {
         self.clone_git_repo(url, cache_path).await?;
-      } else if url.ends_with(".lulib") {
-        create_dirs(cache_path)?;
-        self.download_lulib_package(url, cache_path, None).await?;
-      } else if url.ends_with(".zip") {
-        self.download_and_extract_zip(url, cache_path).await?;
-      } else if url.ends_with(".tar.gz") || url.ends_with(".tgz") {
-        self.download_and_extract_tar_gz(url, cache_path).await?;
       } else {
-        return Err(anyhow!("Unsupported URL format: {}", url));
+        self.download_url(url, cache_path).await?
       }
     } else {
       return Err(anyhow!("Unsupported package source: {}", url));
@@ -319,6 +335,26 @@ impl PackageManager {
     }
 
     fs::remove_dir_all(&temp_extract).ok();
+
+    Ok(())
+  }
+
+  async fn download_rogue_file(&self, url: &str, cache_path: &Path) -> Result<()> {
+    let parsed_url = reqwest::Url::parse(url)?;
+
+    let file_name = parsed_url
+      .path_segments()
+      .and_then(|segments| segments.last())
+      .filter(|s| !s.is_empty())
+      .ok_or("Could not extract file name from URL")
+      .unwrap_or("file");
+
+    let file_path = cache_path.join(file_name);
+
+    let response = reqwest::get(url).await?;
+    let bytes = response.bytes().await?;
+
+    fs::write(file_path, bytes)?;
 
     Ok(())
   }

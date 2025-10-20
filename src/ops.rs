@@ -84,28 +84,18 @@ impl mlua::UserData for LuluByteArray {
     methods.add_method("slice", |_, this, (start, stop): (usize, usize)| {
       let start = start.saturating_sub(1);
       let stop = stop.min(this.bytes.len());
-      Ok(
-        LuluByteArray {
-          bytes: this.bytes[start..stop].to_vec(),
-        }
-      )
+      Ok(LuluByteArray {
+        bytes: this.bytes[start..stop].to_vec(),
+      })
     });
 
     methods.add_method("copy", |_, this, ()| {
-      Ok(
-        LuluByteArray {
-          bytes: this.bytes.clone(),
-        }
-      )
+      Ok(LuluByteArray {
+        bytes: this.bytes.clone(),
+      })
     });
 
-    methods.add_method("new", |_, _, bytes: Vec<u8>| {
-      Ok(
-        LuluByteArray {
-          bytes,
-        }
-      )
-    });
+    methods.add_method("new", |_, _, bytes: Vec<u8>| Ok(LuluByteArray { bytes }));
 
     methods.add_method("map", |_, this, func: mlua::Function| {
       let mapped = this
@@ -871,11 +861,28 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     })
   })?;
   lua.globals().set("HashMap", map_ctor)?;
-  lua.globals().set("ByteArray", lua.create_function(|_, bytes: Vec<u8>| {
-    Ok(LuluByteArray {
-      bytes,
-    })
-  })?)?;
+  lua.globals().set(
+    "ByteArray",
+    lua.create_function(|_, bytes: Vec<u8>| Ok(LuluByteArray { bytes }))?,
+  )?;
+  lua.globals().set(
+    "exec_sandboxed",
+    lua.create_function(|lua, (code, name, env) : (String, Option<String>, Option<mlua::Table>)| {
+      let mut chunk = lua.load(code);
+
+      if let Some(name) = name {
+        chunk = chunk.set_name(name);
+      }
+
+      if let Some(env) = env {
+        chunk = chunk.set_environment(env);
+      } else {
+        chunk = chunk.set_environment(lua.create_table()?);
+      }
+
+      chunk.eval::<mlua::Value>()
+    })?,
+  )?;
 
   let spawn_fn = lua.create_function(|_, code: String| -> mlua::Result<()> {
     let handle = std::thread::spawn(move || {
