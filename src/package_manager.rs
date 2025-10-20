@@ -91,8 +91,15 @@ impl PackageManager {
 
   pub async fn download_file(&self, url: &str) -> Result<PathBuf> {
     let cache_path = self.get_package_cache_path(url);
+    fs::create_dir_all(cache_path.clone())?;
 
-    if !self.is_cached(url) {
+    let download_needed = if cache_path.exists() {
+      fs::read_dir(&cache_path)?.next().is_none()
+    } else {
+      true
+    };
+
+    if download_needed {
       self.download_url(url, &cache_path).await?;
     }
 

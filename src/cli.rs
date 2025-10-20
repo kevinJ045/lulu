@@ -13,11 +13,14 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
   Run {
-    #[arg(name = "FILE")]
+    #[arg(name = "FILE", default_value = ".")]
     file: PathBuf,
 
     #[arg(trailing_var_arg = true)]
     args: Vec<String>,
+
+    #[arg(short = 'b', long)]
+    build: bool,
   },
   Test {
     #[arg(name = "FILE")]

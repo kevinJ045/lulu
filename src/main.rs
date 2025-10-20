@@ -1,5 +1,6 @@
 use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle, set_exec_path};
 use crate::cli::{CacheCommand, Cli, Commands};
+use crate::conf::load_lulu_conf;
 use crate::lulu::Lulu;
 use crate::package_manager::PackageManager;
 use clap::Parser;
@@ -74,9 +75,28 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-      Commands::Run { file, args } => {
+      Commands::Run { file, args , build } => {
         do_error!(
-          if file.extension().and_then(|s| s.to_str()) == Some("lulib") {
+          if *build {
+            let conf = load_lulu_conf(&mlua::Lua::new(), file.clone())?;
+            let name = conf.manifest.unwrap().get::<String>("name")?;
+            std::process::Command::new(std::env::current_exe()?)
+            .arg("build")
+            .arg(file.clone())
+            .status()?;
+            let runpath = if file.join(format!(".lib/{name}.lulib")).exists() {
+              file.join(format!(".lib/{name}.lulib"))
+            } else {
+              file.join(".lib").join(name)
+            };
+            let mods = load_lulib(&runpath)?;
+            run_bundle(
+              mods,
+              args.clone(),
+              Some(file.parent().unwrap().to_path_buf()),
+            )
+            .await
+          } else if file.extension().and_then(|s| s.to_str()) == Some("lulib") {
             let mods = load_lulib(file)?;
             run_bundle(
               mods,
@@ -84,6 +104,17 @@ async fn main() -> Result<()> {
               Some(file.parent().unwrap().to_path_buf()),
             )
             .await
+          } else if file.is_dir() {
+            let mut lulu = Lulu::new(
+              Some(args.clone()),
+              Some(file.to_path_buf()),
+            );
+            let filepath = if file.join("init.lua").exists() {
+              file.join("init.lua")
+            } else {
+              file.join("main.lua")
+            };
+            lulu.exec_entry_mod_path(filepath.clone()).await
           } else {
             let mut lulu = Lulu::new(
               Some(args.clone()),
