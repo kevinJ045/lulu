@@ -2,6 +2,7 @@ use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle, set_exec_path};
 use crate::cli::{CacheCommand, Cli, Commands};
 use crate::conf::load_lulu_conf;
 use crate::lulu::Lulu;
+use crate::ops::register_consts;
 use crate::package_manager::PackageManager;
 use clap::Parser;
 use mlua::Result;
@@ -75,54 +76,49 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-      Commands::Run { file, args , build } => {
-        do_error!(
-          if *build {
-            let conf = load_lulu_conf(&mlua::Lua::new(), file.clone())?;
-            let name = conf.manifest.unwrap().get::<String>("name")?;
-            std::process::Command::new(std::env::current_exe()?)
+      Commands::Run { file, args, build } => {
+        do_error!(if *build {
+          let conf = load_lulu_conf(&mlua::Lua::new(), file.clone())?;
+          let name = conf.manifest.unwrap().get::<String>("name")?;
+          std::process::Command::new(std::env::current_exe()?)
             .arg("build")
             .arg(file.clone())
             .status()?;
-            let runpath = if file.join(format!(".lib/{name}.lulib")).exists() {
-              file.join(format!(".lib/{name}.lulib"))
-            } else {
-              file.join(".lib").join(name)
-            };
-            let mods = load_lulib(&runpath)?;
-            run_bundle(
-              mods,
-              args.clone(),
-              Some(file.parent().unwrap().to_path_buf()),
-            )
-            .await
-          } else if file.extension().and_then(|s| s.to_str()) == Some("lulib") {
-            let mods = load_lulib(file)?;
-            run_bundle(
-              mods,
-              args.clone(),
-              Some(file.parent().unwrap().to_path_buf()),
-            )
-            .await
-          } else if file.is_dir() {
-            let mut lulu = Lulu::new(
-              Some(args.clone()),
-              Some(file.to_path_buf()),
-            );
-            let filepath = if file.join("init.lua").exists() {
-              file.join("init.lua")
-            } else {
-              file.join("main.lua")
-            };
-            lulu.exec_entry_mod_path(filepath.clone()).await
+          let runpath = if file.join(format!(".lib/{name}.lulib")).exists() {
+            file.join(format!(".lib/{name}.lulib"))
           } else {
-            let mut lulu = Lulu::new(
-              Some(args.clone()),
-              Some(file.parent().unwrap().to_path_buf()),
-            );
-            lulu.exec_entry_mod_path(file.clone()).await
-          }
-        );
+            file.join(".lib").join(name)
+          };
+          let mods = load_lulib(&runpath)?;
+          run_bundle(
+            mods,
+            args.clone(),
+            Some(file.parent().unwrap().to_path_buf()),
+          )
+          .await
+        } else if file.extension().and_then(|s| s.to_str()) == Some("lulib") {
+          let mods = load_lulib(file)?;
+          run_bundle(
+            mods,
+            args.clone(),
+            Some(file.parent().unwrap().to_path_buf()),
+          )
+          .await
+        } else if file.is_dir() {
+          let mut lulu = Lulu::new(Some(args.clone()), Some(file.to_path_buf()));
+          let filepath = if file.join("init.lua").exists() {
+            file.join("init.lua")
+          } else {
+            file.join("main.lua")
+          };
+          lulu.exec_entry_mod_path(filepath.clone()).await
+        } else {
+          let mut lulu = Lulu::new(
+            Some(args.clone()),
+            Some(file.parent().unwrap().to_path_buf()),
+          );
+          lulu.exec_entry_mod_path(file.clone()).await
+        });
         Ok(())
       }
       Commands::Compile { file } => {
@@ -197,6 +193,8 @@ async fn main() -> Result<()> {
 
         let conf_string = std::fs::read_to_string(conf_path.clone())?;
         let lua = mlua::Lua::new();
+
+        register_consts(&lua)?;
 
         if let Some(build_fn_lua) = conf::load_lulu_conf_builder(&lua, conf_string.clone())? {
           let main = conf::load_lulu_conf_code(&lua, conf::CodeType::Code(conf_string))?;

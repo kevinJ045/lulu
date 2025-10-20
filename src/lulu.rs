@@ -1,6 +1,6 @@
 use crate::compiler::Compiler;
 use crate::conf::{LuluConf, find_lulu_conf, load_lulu_conf};
-use crate::ops;
+use crate::ops::{self, register_consts};
 use mlua::{Lua, chunk};
 use std::path::PathBuf;
 
@@ -104,6 +104,8 @@ impl Lulu {
       .exec()?;
 
     self.lua.load(self.std.clone()).set_name("std").exec()?;
+
+    register_consts(&self.lua)?;
 
     Ok(())
   }
@@ -241,7 +243,7 @@ impl Lulu {
         Ok(path.join(name))
       })?,
     )?;
-    
+
     let using = self
       .lua
       .load(chunk! {

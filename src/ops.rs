@@ -908,3 +908,18 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
 
   Ok(())
 }
+
+pub fn register_consts(lua: &Lua) -> mlua::Result<()> {
+
+  lua.globals().set(
+    "CURRENT_OS",
+    std::env::consts::OS,
+  )?;
+
+  lua.globals().set(
+    "LULU_VER",
+    env!("CARGO_PKG_VERSION"),
+  )?;
+
+  Ok(())
+}
