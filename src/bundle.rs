@@ -206,12 +206,10 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
 
 pub async fn run_bundle(
   mods: HashMap<String, LuLib>,
-  args: Vec<String>,
-  current: Option<PathBuf>,
+  lulu: &mut Lulu
 ) -> mlua::Result<()> {
-  let mut lulu = Lulu::new(Some(args), current);
 
-  reg_bundle_nods(&mut lulu, mods)?;
+  reg_bundle_nods(lulu, mods)?;
 
   lulu.preload_mods()?;
 

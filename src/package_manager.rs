@@ -23,7 +23,7 @@ pub struct PackageInfo {
   pub cache_path: PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PackageManager {
   cache_dir: PathBuf,
 }

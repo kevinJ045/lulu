@@ -954,7 +954,7 @@ dependencies = [
 
 [[package]]
 name = "lulu"
-version = "0.0.591"
+version = "0.0.60"
 dependencies = [
  "anyhow",
  "clap",

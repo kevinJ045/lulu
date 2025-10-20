@@ -63,11 +63,13 @@ macro_rules! into_exec_command {
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<()> {
   if let Some(mods) = bundle::load_embedded_scripts() {
-    do_error!(
+    handle_error!(
       run_bundle(
         mods,
-        std::env::args().collect(),
-        Some(std::env::current_exe()?.parent().unwrap().to_path_buf())
+        &mut Lulu::new(
+          Some(std::env::args().skip(1).collect()),
+          Some(std::env::current_exe()?.parent().unwrap().to_path_buf())
+        )
       )
       .await
     );
@@ -77,8 +79,9 @@ async fn main() -> Result<()> {
 
     match &cli.command {
       Commands::Run { file, args, build } => {
-        do_error!(if *build {
-          let conf = load_lulu_conf(&mlua::Lua::new(), file.clone())?;
+        handle_error!(if *build {
+          let lua = mlua::Lua::new();
+          let conf = load_lulu_conf(&lua, file.join("lulu.conf.lua"))?;
           let name = conf.manifest.unwrap().get::<String>("name")?;
           std::process::Command::new(std::env::current_exe()?)
             .arg("build")
@@ -90,18 +93,15 @@ async fn main() -> Result<()> {
             file.join(".lib").join(name)
           };
           let mods = load_lulib(&runpath)?;
-          run_bundle(
-            mods,
-            args.clone(),
-            Some(file.parent().unwrap().to_path_buf()),
-          )
-          .await
+          run_bundle(mods, &mut Lulu::new(Some(args.clone()), Some(runpath))).await
         } else if file.extension().and_then(|s| s.to_str()) == Some("lulib") {
           let mods = load_lulib(file)?;
           run_bundle(
             mods,
-            args.clone(),
-            Some(file.parent().unwrap().to_path_buf()),
+            &mut Lulu::new(
+              Some(args.clone()),
+              Some(file.parent().unwrap().to_path_buf()),
+            ),
           )
           .await
         } else if file.is_dir() {
@@ -134,7 +134,7 @@ async fn main() -> Result<()> {
         );
         lulu.compiler.env = "test".to_string();
         lulu.compiler.current_test = test.clone();
-        do_error!(lulu.exec_entry_mod_path(file.clone()).await);
+        handle_error!(lulu.exec_entry_mod_path(file.clone()).await);
         Ok(())
       }
       Commands::Bundle { file, output } => {
@@ -247,21 +247,61 @@ async fn main() -> Result<()> {
           lua.globals().set(
             "download_file",
             lua.create_async_function(async move |_, url: String| {
-              let pkg_manager = PackageManager::new().map_err(|e| {
-                eprintln!("Failed to initialize package manager: {}", e);
-                mlua::Error::external(e)
-              })?;
-
-              pkg_manager.download_file(&url).await.map_err(|e| {
-                eprintln!("Failed to download file: {}", e);
-                mlua::Error::external(e)
-              })
+              PackageManager::new()
+                .map_err(|e| {
+                  eprintln!("Failed to initialize package manager: {}", e);
+                  mlua::Error::external(e)
+                })?
+                .clone()
+                .download_file(&url)
+                .await
+                .map_err(|e| {
+                  eprintln!("Failed to download file: {}", e);
+                  mlua::Error::external(e)
+                })
             })?,
           )?;
 
           lua.globals().set(
             "set_stub",
             lua.create_function(move |_, path: String| {
+              set_exec_path(path);
+              Ok(())
+            })?,
+          )?;
+
+          lua.globals().set(
+            "stubs",
+            lua.create_async_function(async move |_, stubs: HashMap<String, String>| {
+              let current_os = std::env::consts::OS;
+
+              let url = stubs.get(current_os).ok_or_else(|| {
+                mlua::Error::external(format!("No stub found for OS: {}", current_os))
+              })?;
+
+              let path = if url.starts_with("http") {
+                let cache_path = PackageManager::new()
+                  .map_err(|e| {
+                    eprintln!("Failed to initialize package manager: {}", e);
+                    mlua::Error::external(e)
+                  })?
+                  .download_file(url)
+                  .await
+                  .map_err(|e| {
+                    eprintln!("Failed to download file: {}", e);
+                    mlua::Error::external(e)
+                  })?;
+
+                let file_name = url
+                  .split('/')
+                  .last()
+                  .ok_or_else(|| mlua::Error::external("Invalid URL: missing file name"))?;
+
+                cache_path.join(file_name)
+              } else {
+                Path::new(url).to_path_buf()
+              };
+
               set_exec_path(path);
               Ok(())
             })?,
@@ -326,7 +366,7 @@ async fn main() -> Result<()> {
           lua.globals().set("build", build)?;
           lua.globals().set("exists", exists_func)?;
 
-          do_error!(build_fn_lua.call::<()>(()));
+          handle_error!(build_fn_lua.call::<()>(()));
         }
         Ok(())
       }

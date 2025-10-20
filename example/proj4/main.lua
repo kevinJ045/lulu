@@ -1,10 +1,10 @@
 import! utils, { "./utils.lua" }
 import! smn, { "./src/something.lua" }
-include_bytes! bbb, { "./main.txt" }
+local bbb = include_bytes! { "./some.txt" }
 
 fprint(utils)
 fprint(smn)
-print(bbb)
+print(bbb:to_string())
 
 test! {
   add {

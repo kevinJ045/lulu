@@ -2,7 +2,7 @@ use mlua::Lua;
 use std::path::Path;
 
 #[macro_export]
-macro_rules! do_error {
+macro_rules! handle_error {
   ($case:expr) => {
     match $case {
       Err(e) => {
