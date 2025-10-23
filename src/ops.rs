@@ -517,8 +517,15 @@ fn create_std(lua: &Lua) -> mlua::Result<()> {
         let status = resp.status().as_u16();
         let bytes = resp.bytes().await.map_err(LuaError::external)?;
 
-        let res = lua.create_table_from([("body", bytes.to_vec())])?;
+        let res = lua.create_table_from([("body", LuluByteArray { bytes: bytes.to_vec() })])?;
         res.set("status", status)?;
+        
+        let bytes_clone = bytes.clone();
+        res.set("text", lua.create_function(move |_, ()| {
+          let text = String::from_utf8(bytes_clone.to_vec())
+            .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
+          Ok(text)
+        })?)?;
         Ok(res)
       },
     )?,

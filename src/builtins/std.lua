@@ -699,7 +699,6 @@ class! WeakMap:Map, {
 
 function default_to(default)
   return function(self, value)
-    print(value)
     return value or default
   end
 end
