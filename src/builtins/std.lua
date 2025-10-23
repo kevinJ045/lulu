@@ -166,6 +166,7 @@ function iseq(first, second)
 end
 
 function instanceof(obj, class)
+  if not obj then return false end
   if not class and obj then return false end
   local cls = obj.__class
   while cls do

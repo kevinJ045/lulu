@@ -794,7 +794,7 @@ impl Compiler {
         }
         Token::LeftBrace(_) => {
           brace_count += 1;
-          if brace_count > 1 {
+          if brace_count > 1 || paren_count > 0 {
             current_arg.push(tokens[i].clone());
           }
           i += 1;
@@ -1526,7 +1526,6 @@ impl Compiler {
     }
 
     let mut self_assignments = String::new();
-    let mut self_assignments_decorated = String::new();
 
     // Re-tokenize constructor argument list directly
     let mut constructor_arg_tokens = Vec::new();
@@ -1636,7 +1635,7 @@ impl Compiler {
           let deco_str = self.generate_code(deco);
           expr = format!("{deco_str}(self, {expr}, \"{name_str}\")");
         }
-        self_assignments_decorated.push_str(&format!("{assign_target} = {expr}\n"));
+        self_assignments.push_str(&format!("{assign_target} = {expr}\n"));
       } else {
         self_assignments.push_str(&format!("{assign_target} = {assign_expr}\n"));
       }
@@ -1722,14 +1721,12 @@ function {name}:__construct(is_first, ...)
   {assignments}
   {constructor_block}
   if self.__call_init and is_first then self:__call_init(...) end
-  {assignments_decorated}
 end
 "#,
       name = class_name,
       call_parent = call_parent,
       constructor_block = self.generate_code(constructor_block_str),
       assignments = self_assignments,
-      assignments_decorated = self_assignments_decorated
     );
 
     let lua_code = format!(
