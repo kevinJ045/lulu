@@ -136,13 +136,21 @@ impl<'a> Parser<'a> {
   fn parse_braced_attribute(&mut self) -> String {
     self.consume("{");
     let mut output = String::new();
+    let mut depth = 1;
 
     while self.pos < self.input.len() {
-      if self.starts_with("}") {
-        self.consume("}");
-        break;
+      if self.starts_with("{") {
+        depth += 1;
+        output.push(self.advance());
+      } else if self.starts_with("}") {
+        depth -= 1;
+        self.advance();
+        if depth == 0 {
+          break;
+        } else {
+          output.push('}');
+        }
       } else if self.starts_with("<") {
-        // Parse lml and compile immediately
         let lml_node = self.parse_element();
         output.push_str(&compile_node(&lml_node, None));
       } else {

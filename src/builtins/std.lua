@@ -114,6 +114,9 @@ function make_class(class_raw, parent)
   local inits = {}
 
   function class:__call_init(...)
+    if parent and parent.__call_init then
+      parent.__call_init(self, ...)
+    end
     for _, fn in ipairs(inits) do
       fn(self, ...)
     end
@@ -700,7 +703,7 @@ class! WeakMap:Map, {
 
 function default_to(default)
   return function(self, value)
-    return value or default
+    return value == nil and default or value
   end
 end
 
