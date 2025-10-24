@@ -29,8 +29,8 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Clone)]
-struct LuluByteArray {
-  bytes: Vec<u8>,
+pub struct LuluByteArray {
+  pub bytes: Vec<u8>,
 }
 
 impl mlua::UserData for LuluByteArray {
