@@ -517,15 +517,23 @@ fn create_std(lua: &Lua) -> mlua::Result<()> {
         let status = resp.status().as_u16();
         let bytes = resp.bytes().await.map_err(LuaError::external)?;
 
-        let res = lua.create_table_from([("body", LuluByteArray { bytes: bytes.to_vec() })])?;
+        let res = lua.create_table_from([(
+          "body",
+          LuluByteArray {
+            bytes: bytes.to_vec(),
+          },
+        )])?;
         res.set("status", status)?;
-        
+
         let bytes_clone = bytes.clone();
-        res.set("text", lua.create_function(move |_, ()| {
-          let text = String::from_utf8(bytes_clone.to_vec())
-            .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
-          Ok(text)
-        })?)?;
+        res.set(
+          "text",
+          lua.create_function(move |_, ()| {
+            let text = String::from_utf8(bytes_clone.to_vec())
+              .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
+            Ok(text)
+          })?,
+        )?;
         Ok(res)
       },
     )?,
@@ -874,21 +882,23 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   )?;
   lua.globals().set(
     "exec_sandboxed",
-    lua.create_function(|lua, (code, name, env) : (String, Option<String>, Option<mlua::Table>)| {
-      let mut chunk = lua.load(code);
+    lua.create_function(
+      |lua, (code, name, env): (String, Option<String>, Option<mlua::Table>)| {
+        let mut chunk = lua.load(code);
 
-      if let Some(name) = name {
-        chunk = chunk.set_name(name);
-      }
+        if let Some(name) = name {
+          chunk = chunk.set_name(name);
+        }
 
-      if let Some(env) = env {
-        chunk = chunk.set_environment(env);
-      } else {
-        chunk = chunk.set_environment(lua.create_table()?);
-      }
+        if let Some(env) = env {
+          chunk = chunk.set_environment(env);
+        } else {
+          chunk = chunk.set_environment(lua.create_table()?);
+        }
 
-      chunk.eval::<mlua::Value>()
-    })?,
+        chunk.eval::<mlua::Value>()
+      },
+    )?,
   )?;
 
   let spawn_fn = lua.create_function(|_, code: String| -> mlua::Result<()> {
@@ -911,27 +921,94 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     })?,
   )?;
 
+  lua.globals().set(
+    "setup_downloader",
+    lua.create_function(|lua, options: Option<mlua::Table>| {
+      let mut pm = PackageManager::new().map_err(|e| {
+        eprintln!("Failed to initialize package manager: {}", e);
+        mlua::Error::external(e)
+      })?;
+      if let Some(options) = options {
+        if let Ok(format) = options.get::<String>("format") {
+          pm.downloader.format = format;
+        }
+        
+        if let Ok(download_text) = options.get::<String>("download_text") {
+          pm.downloader.download_text = download_text;
+        }
+
+        if let Ok(progress_bar_size) = options.get::<usize>("progressbar_size") {
+          pm.downloader.progress_bar_size = progress_bar_size;
+        }
+
+        if let Ok(progress_bar_colors) = options.get::<Vec<u8>>("progressbar_colors") {
+          pm.downloader.progress_bar_colors = (
+            (progress_bar_colors[0], progress_bar_colors[1], progress_bar_colors[2]),
+            (progress_bar_colors[3], progress_bar_colors[4], progress_bar_colors[5])
+          );
+        }
+      }
+      lua
+        .globals()
+        .set("__lulu_pac_man", lua.create_any_userdata(pm)?)?;
+      Ok(())
+    })?,
+  )?;
+
+  lua.globals().set(
+    "download_file",
+    lua.create_async_function(async |lua, url: String| {
+      let pm = lua.globals().get::<mlua::AnyUserData>("__lulu_pac_man")?;
+      let pm = pm.borrow::<PackageManager>()?;
+      pm.download_file(&url).await.map_err(|e| {
+        eprintln!("Failed to download file: {}", e);
+        mlua::Error::external(e)
+      })
+    })?,
+  )?;
+  lua.globals().set(
+    "download_uncached",
+    lua.create_async_function(async |lua, (url, path): (String, String)| {
+      let pm = lua.globals().get::<mlua::AnyUserData>("__lulu_pac_man")?;
+      let pm = pm.borrow::<PackageManager>()?;
+      pm.download_url(&url, &std::path::Path::new(&path))
+        .await
+        .map_err(|e| {
+          eprintln!("Failed to download file: {}", e);
+          mlua::Error::external(e)
+        })
+    })?,
+  )?;
+  lua.globals().set(
+    "sync_call",
+    lua
+      .load(mlua::chunk! {
+        local args = {...}
+        local fn = args[1]
+        table.remove(args, 1)
+        local f = coroutine.create(function(...)
+          fn(...)
+          return false
+        end)
+        local done = true
+        while done do
+          done = coroutine.resume(f, unpack(args))
+        end
+      })
+      .into_function()?,
+  )?;
+
   create_std(lua)?;
 
   Ok(())
 }
 
 pub fn register_consts(lua: &Lua) -> mlua::Result<()> {
+  lua.globals().set("CURRENT_OS", std::env::consts::OS)?;
 
-  lua.globals().set(
-    "CURRENT_OS",
-    std::env::consts::OS,
-  )?;
+  lua.globals().set("CURRENT_ARCH", std::env::consts::ARCH)?;
 
-  lua.globals().set(
-    "CURRENT_ARCH",
-    std::env::consts::ARCH,
-  )?;
-
-  lua.globals().set(
-    "LULU_VER",
-    env!("CARGO_PKG_VERSION"),
-  )?;
+  lua.globals().set("LULU_VER", env!("CARGO_PKG_VERSION"))?;
 
   Ok(())
 }

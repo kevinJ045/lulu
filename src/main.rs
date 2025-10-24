@@ -253,7 +253,7 @@ async fn main() -> Result<()> {
           )?;
 
           lua.globals().set(
-            "download_file",
+            "download_file_async",
             lua.create_async_function(async move |_, url: String| {
               PackageManager::new()
                 .map_err(|e| {
@@ -271,6 +271,20 @@ async fn main() -> Result<()> {
           )?;
 
           lua.globals().set(
+            "download_file",
+            lua.load(mlua::chunk! {
+              local f = coroutine.create(function(...)
+                download_file_async(...)
+                return false
+              end)
+              local done = true
+              while done do
+                done = coroutine.resume(f, ...)
+              end
+            }).into_function()?,
+          )?;
+
+          lua.globals().set(
             "set_stub",
             lua.create_function(move |_, path: String| {
               set_exec_path(path);
@@ -278,9 +292,7 @@ async fn main() -> Result<()> {
             })?,
           )?;
 
-          lua.globals().set(
-            "stubs",
-            lua.create_async_function(async move |_, stubs: HashMap<String, String>| {
+          let stubs_fn = lua.create_async_function(async move |_, stubs: HashMap<String, String>| {
               let current_os = std::env::consts::OS;
 
               let url = if let Some(url) = stubs.get(current_os) {
@@ -308,15 +320,43 @@ async fn main() -> Result<()> {
                   .split('/')
                   .last()
                   .ok_or_else(|| mlua::Error::external("Invalid URL: missing file name"))?;
+                
+                let file_path = cache_path.join(file_name);
 
-                cache_path.join(file_name)
+                #[cfg(unix)]
+                {
+                  use std::os::unix::fs::PermissionsExt;
+                  let mut perms = std::fs::metadata(file_path.clone())?.permissions();
+                  perms.set_mode(perms.mode() | 0o111);
+                  std::fs::set_permissions(file_path.clone(), perms)?;
+                }
+
+                file_path
               } else {
                 Path::new(url).to_path_buf()
               };
-
+              
               set_exec_path(path);
               Ok(())
-            })?,
+            })?;
+
+          lua.globals().set(
+            "stubs_async",
+            stubs_fn
+          )?;
+
+          lua.globals().set(
+            "stubs",
+            lua.load(mlua::chunk! {
+              local f = coroutine.create(function(...)
+                stubs_async(...)
+                return false
+              end)
+              local done = true
+              while done do
+                done = coroutine.resume(f, ...)
+              end
+            }).into_function()?,
           )?;
 
           let larc = lulu_arc.clone();

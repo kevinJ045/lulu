@@ -1,4 +1,9 @@
-
-local s = Sandbox():into()
-
-print(s.set('kk', "djjd").set('print', print).eval("kk"))
+setup_downloader({
+  download_text = "curl",
+  progressbar_size = 10,
+  progressbar_colors = { 255, 0, 0, 0, 0, 255 }
+})
+sync_call(function()
+  mkdir("/tmp/lulu")
+  download_uncached("http://localhost:3000/lulu-ui", "/tmp/lulu")
+end)

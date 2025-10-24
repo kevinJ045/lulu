@@ -56,32 +56,51 @@ impl Lulu {
   }
 
   pub fn preload_mods(&mut self) -> mlua::Result<()> {
-    let items = self.compiler.importmap.clone();
+    let mut processed = std::collections::HashSet::new();
+    let mut last_len = 0;
 
-    for (name, (path_to_import, path_from, conf)) in &items {
-      let path_from = if let Some(p) = path_from {
-        p.clone()
-      } else {
-        "".to_string()
-      };
-      if path_from.is_empty() {
-        continue;
-      }
-      let parent = std::path::Path::new(&path_from).parent().unwrap();
-      let file_path = parent.join(path_to_import);
+    loop {
+      let keys: Vec<String> = self.compiler.importmap.keys().cloned().collect();
 
-      if !file_path.exists() {
-        panic!(
-          "File \"{:?}\" does not exist. Imported from: \"{}\"",
-          file_path, path_from
-        );
+      if keys.len() == last_len {
+        break;
       }
 
-      if name.starts_with("bytes://") {
-        let bytecode = std::fs::read(file_path)?;
-        self.add_mod_from_bytecode(name.to_string(), bytecode, None);
-      } else {
-        self.add_mod_from_file(name.to_string(), file_path, conf.clone())?;
+      last_len = keys.len();
+
+      for name in keys {
+        if processed.contains(&name) {
+          continue;
+        }
+
+        let (path_to_import, path_from_opt, conf) = match self.compiler.importmap.get(&name) {
+          Some(v) => v.clone(),
+          _ => continue,
+        };
+
+        let path_from = path_from_opt.unwrap_or_default();
+        if path_from.is_empty() {
+          continue;
+        }
+
+        let parent = std::path::Path::new(&path_from).parent().unwrap();
+        let file_path = parent.join(path_to_import);
+
+        if !file_path.exists() {
+          panic!(
+            "File {:?} does not exist. Imported from: {}",
+            file_path, path_from
+          );
+        }
+
+        if name.starts_with("bytes://") {
+          let bytecode = std::fs::read(&file_path)?;
+          self.add_mod_from_bytecode(name.clone(), bytecode, None);
+        } else {
+          self.add_mod_from_file(name.clone(), file_path, conf.clone())?;
+        }
+
+        processed.insert(name);
       }
     }
 

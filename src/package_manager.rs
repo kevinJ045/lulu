@@ -24,8 +24,31 @@ pub struct PackageInfo {
 }
 
 #[derive(Debug, Clone)]
+pub struct Downloader {
+  pub download_text: String,
+  pub progress_bar_colors: ((u8, u8, u8), (u8, u8, u8)),
+  pub format: String,
+  pub progress_bar_size: usize
+}
+
+impl Default for Downloader {
+  fn default() -> Self {
+    Self {
+      download_text: "Downloading".to_string(),
+      progress_bar_colors: (
+        (107, 215, 202),
+        (137, 216, 139)
+      ),
+      progress_bar_size: 30,
+      format: "^D \x1b[33m^N\x1b[0m ^P ^C kb / ^T kb".to_string()
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
 pub struct PackageManager {
   cache_dir: PathBuf,
+  pub downloader: Downloader,
 }
 
 impl PackageManager {
@@ -33,7 +56,10 @@ impl PackageManager {
     let cache_dir = Self::get_cache_directory()?;
     fs::create_dir_all(&cache_dir)?;
 
-    Ok(PackageManager { cache_dir })
+    Ok(PackageManager {
+      cache_dir,
+      downloader: Downloader::default(),
+    })
   }
 
   fn get_cache_directory() -> Result<PathBuf> {
@@ -192,15 +218,16 @@ impl PackageManager {
     let lulib_path = cache_path.join(format!(".lib/lulib/{}.lulib", name));
     fs::create_dir_all(lulib_path.parent().unwrap())?;
 
-    let response = reqwest::get(url).await?;
-    let bytes = response.bytes().await?;
+    let bytes = self.download_bytes(url, None).await?;
     fs::write(&lulib_path, &bytes)?;
 
     if let Some(include_map) = include {
       let current_platform = self.get_current_platform();
       if let Some(files) = if let Some(files) = include_map.get(current_platform) {
         Some(files)
-      } else if let Some(files) = include_map.get(&format!("{}-{}", current_platform, std::env::consts::ARCH)) {
+      } else if let Some(files) =
+        include_map.get(&format!("{}-{}", current_platform, std::env::consts::ARCH))
+      {
         Some(files)
       } else {
         None
@@ -216,10 +243,8 @@ impl PackageManager {
             .to_string();
           let dest = platform_dir.join(filename);
 
-          if let Ok(response) = reqwest::get(file_url).await {
-            if let Ok(bytes) = response.bytes().await {
-              let _ = fs::write(dest, &bytes);
-            }
+          if let Ok(bytes) = self.download_bytes(url, None).await {
+            let _ = fs::write(dest, &bytes);
           }
         }
       }
@@ -297,8 +322,7 @@ impl PackageManager {
   }
 
   async fn download_and_extract_zip(&self, url: &str, cache_path: &Path) -> Result<()> {
-    let response = reqwest::get(url).await?;
-    let bytes = response.bytes().await?;
+    let bytes = self.download_bytes(url, None).await?;
 
     let temp_file = cache_path.join("download.zip");
     fs::write(&temp_file, &bytes)?;
@@ -327,8 +351,7 @@ impl PackageManager {
   }
 
   async fn download_and_extract_tar_gz(&self, url: &str, cache_path: &Path) -> Result<()> {
-    let response = reqwest::get(url).await?;
-    let bytes = response.bytes().await?;
+    let bytes = self.download_bytes(url, None).await?;
 
     let decoder = GzDecoder::new(&bytes[..]);
     let mut archive = Archive::new(decoder);
@@ -352,6 +375,73 @@ impl PackageManager {
     Ok(())
   }
 
+  pub async fn download_bytes(&self, url: &str, name: Option<&str>) -> Result<Vec<u8>> {
+    let response = reqwest::get(url).await?;
+    let total_size = response.content_length().unwrap_or(0);
+    let mut bytes = Vec::with_capacity(total_size as usize);
+
+    let mut downloaded: u64 = 0;
+    let mut resp = response;
+    let name = if let Some(name) = name {
+      name.to_string()
+    } else {
+      reqwest::Url::parse(url)?
+        .path_segments()
+        .and_then(|segments| segments.last())
+        .filter(|s| !s.is_empty())
+        .ok_or("Could not extract file name from URL")
+        .unwrap_or(url)
+        .to_string()
+    };
+
+    while let Some(chunk) = resp.chunk().await? {
+      bytes.extend_from_slice(&chunk);
+      downloaded += chunk.len() as u64;
+
+      let progress_bar = if total_size > 0 {
+        let pct = downloaded as f64 / total_size as f64;
+        let bar_width = self.downloader.progress_bar_size;
+        let filled = (pct * bar_width as f64).round() as usize;
+        let empty = bar_width - filled;
+
+        let mut bar = String::new();
+        for i in 0..filled {
+          let t = i as f64 / bar_width as f64;
+          let r = (self.downloader.progress_bar_colors.0.0 as f64) + ((self.downloader.progress_bar_colors.1.0 as f64) - (self.downloader.progress_bar_colors.0.0 as f64) ) * t;
+          let g = (self.downloader.progress_bar_colors.0.1 as f64) + ((self.downloader.progress_bar_colors.1.1 as f64) - (self.downloader.progress_bar_colors.0.1 as f64) ) * t;
+          let b = (self.downloader.progress_bar_colors.0.2 as f64) + ((self.downloader.progress_bar_colors.1.2 as f64) - (self.downloader.progress_bar_colors.0.2 as f64) ) * t;
+
+          bar.push_str(&format!(
+            "\x1b[38;2;{};{};{}m#\x1b[0m",
+            r.round() as u8,
+            g.round() as u8,
+            b.round() as u8
+          ));
+        }
+        bar.push_str(&" ".repeat(empty));
+
+        bar
+      } else {
+        "[unknown]".to_string()
+      };
+
+      let downloaded_kb = downloaded / 1024;
+      let total_kb = if total_size > 0 { total_size / 1024 } else { 0 };
+
+      let formatted = self.downloader
+          .format
+          .replace("^D", &self.downloader.download_text)
+          .replace("^N", &name)
+          .replace("^P", &progress_bar)
+          .replace("^C", &downloaded_kb.to_string())
+          .replace("^T", &total_kb.to_string());
+
+      print!("\r{}", formatted);
+    }
+
+    Ok(bytes)
+  }
+
   async fn download_rogue_file(&self, url: &str, cache_path: &Path) -> Result<()> {
     let parsed_url = reqwest::Url::parse(url)?;
 
@@ -364,8 +454,7 @@ impl PackageManager {
 
     let file_path = cache_path.join(file_name);
 
-    let response = reqwest::get(url).await?;
-    let bytes = response.bytes().await?;
+    let bytes = self.download_bytes(url, Some(file_name)).await?;
 
     fs::write(file_path, bytes)?;
 
