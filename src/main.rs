@@ -275,9 +275,13 @@ async fn main() -> Result<()> {
             lua.create_async_function(async move |_, stubs: HashMap<String, String>| {
               let current_os = std::env::consts::OS;
 
-              let url = stubs.get(current_os).ok_or_else(|| {
-                mlua::Error::external(format!("No stub found for OS: {}", current_os))
-              })?;
+              let url = if let Some(url) = stubs.get(current_os) {
+                Ok(url)
+              } else if let Some(url) = stubs.get(&format!("{}-{}", current_os, std::env::consts::ARCH)) {
+                Ok(url)
+              } else {
+                Err(mlua::Error::external(format!("No stub found for OS: {}", current_os)))
+              }?;
 
               let path = if url.starts_with("http") {
                 let cache_path = PackageManager::new()

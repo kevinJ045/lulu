@@ -198,7 +198,13 @@ impl PackageManager {
 
     if let Some(include_map) = include {
       let current_platform = self.get_current_platform();
-      if let Some(files) = include_map.get(current_platform) {
+      if let Some(files) = if let Some(files) = include_map.get(current_platform) {
+        Some(files)
+      } else if let Some(files) = include_map.get(&format!("{}-{}", current_platform, std::env::consts::ARCH)) {
+        Some(files)
+      } else {
+        None
+      } {
         let platform_dir = cache_path.join(current_platform);
         fs::create_dir_all(&platform_dir)?;
 
