@@ -92,8 +92,16 @@ async fn main() -> Result<()> {
           } else {
             file.join(".lib").join(name)
           };
-          let mods = load_lulib(&runpath)?;
-          run_bundle(mods, &mut Lulu::new(Some(args.clone()), Some(runpath))).await
+
+          if runpath.ends_with(".lulib"){
+            let mods = load_lulib(&runpath)?;
+            run_bundle(mods, &mut Lulu::new(Some(args.clone()), Some(runpath))).await?;
+          } else {
+            std::process::Command::new(runpath)
+              .args(args)
+              .status()?;
+          }
+          Ok(())
         } else if file.extension().and_then(|s| s.to_str()) == Some("lulib") {
           let mods = load_lulib(file)?;
           run_bundle(

@@ -1,6 +1,6 @@
 [package]
 name = "lulu"
-version = "0.0.614"
+version = "0.0.615"
 authors = ["makano"]
 edition = "2024"
 license = "MIT"
