@@ -820,7 +820,7 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   let lulu_clone = lulu.clone();
 
   lua.globals().set(
-    "require_cached",
+    "require_cached_async",
     lua.create_async_function(move |_, url: String| {
       let mut lulu_clone = lulu_clone.clone();
       async move {
@@ -978,6 +978,21 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
           mlua::Error::external(e)
         })
     })?,
+  )?;
+  lua.globals().set(
+    "require_cached",
+    lua
+      .load(mlua::chunk! {
+        local f = coroutine.create(function(...)
+          require_cached_async(...)
+          return false
+        end)
+        local done = true
+        while done do
+          done = coroutine.resume(f, ...)
+        end
+      })
+      .into_function()?,
   )?;
   lua.globals().set(
     "sync_call",

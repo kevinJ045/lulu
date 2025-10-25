@@ -17,6 +17,10 @@ Here are the functions available in that environment.
 
 - **`resolve_dependencies()`**: Resolves and fetches all dependencies listed in the `dependencies` field of your `lulu.conf.lua`. It populates the `.lib` directory with the fetched artifacts.
 
+- **`download_file(url)`**: Downloads a URL into a cache path and returns the cache path.
+
+- **`set_stub(path)`**: Set the stub into a predetermined existing path.
+
 - **`bundle_main(entry_module, is_lib)`**: Bundles the project starting from the given entry module.
   - `entry_module` (string): The name of the module from your `mods` table to use as the entry point (e.g., `"main"`).
   - `is_lib` (boolean, optional): If `true`, creates a `.lulib` library bundle. If `false` or omitted, creates a standalone executable.
@@ -43,3 +47,29 @@ Here are the functions available in that environment.
   - `path` (string): The path to the file.
 
 - **`exists(path)`**: Returns `true` if a file or directory exists at the given path, `false` otherwise.
+
+## Stubs
+
+A "stub" is basically a binary where your lulib will be appended into, not only changing the way your lulib runs, but also giving you an entirely new environment on top of Lulu. While Lulu uses itself by default, these binaries/stubs are interchangebale with the `stubs` function in your build environment. 
+
+```lua
+-- lulu.conf.lua
+build = function()
+  -- generally
+  stubs {
+    windows = "https://.../stub-windows.exe",
+    linux = "https://.../stub-linux",
+  }
+  -- or
+  if CURRENT_OS == "linux" then
+    set_stub("path/to/stub")
+  else
+    ...
+  end
+  
+  bundle_main("main.lua")
+  -- the main result will be based on the stub provided
+  -- the stub. the size of the final result is also
+  -- based on the stub
+end
+```

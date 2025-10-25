@@ -3,6 +3,7 @@
 :root {
   --search-input-border-color: var(--mauve);
   --mono-tint2: var(--mauve);
+  --docsifytabs-tab-background: var(--mantle);
 }
 
 body {
@@ -53,26 +54,25 @@ a:hover {
 .markdown-section pre {
   font-family: 'Fira Code', monospace;
   border-radius: 8px;
-  padding: 1.5rem 1.5rem 1.5rem 1.5rem;
+  padding: 2rem 1.5rem 1.5rem 1.5rem;
   position: relative;
   margin: 1.5em 0;
   overflow: hidden;
 }
+.markdown-section pre code {
+  font-size: 14px !important;
+  color: #E1E4E8 !important;
+}
 
 /* Code block header */
 .markdown-section pre[data-lang]::before {
-  content: ' ';
-  position: relative;
-  top: 0;
-  left: 0;
+  content: attr(data-lang);
+  position: absolute;
+  top: 5px;
   right: 0;
   height: 2rem;
   border-radius: 8px 8px 0 0;
   padding: 0 1rem;
-  font-size: 0.9em;
-  line-height: 2rem;
-  font-family: 'Inter', sans-serif;
-  text-transform: uppercase;
 }
 
 /* Window Controls */
@@ -81,6 +81,7 @@ a:hover {
   position: absolute;
   top: 0.7rem;
   left: 1rem;
+  padding: 0;
   width: 12px;
   height: 12px;
   background-color: var(--red);
@@ -115,10 +116,74 @@ a:hover {
 .search .input-wrap {
   background: transparent !important;
   border: 0 !important;
-  padding: 10px;
-  margin: 10px;
 }
 
 .search .input-wrap input {
+  box-shadow: none !important;
   border-radius: 25px;
+}
+
+table.side-by-side {
+  display: table;
+  width: 100%;
+  table-layout: fixed !important;
+  background: var(--mantle);
+  border-radius: 15px;
+  overflow: hidden;
+}
+
+table.side-by-side * {
+  border: 0;
+}
+
+table.side-by-side p {
+  display: none;
+}
+
+table.side-by-side pre {
+  margin: 0;
+  padding: 0;
+}
+
+table.side-by-side pre[data-lang] {
+  padding-top: 25px;
+}
+
+.docsify-copy-code-button {
+  background: var(--base) !important;
+  width: 40px !important;
+  top: 10px !important;
+  right: 10px !important;
+  height: 40px !important;
+  border-radius: 12px !important;
+}
+
+.docsify-copy-code-button::before, .docsify-copy-code-button::after {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: var(--subtext0);
+  position: absolute;
+  top: calc(50% - 8px);
+  left: calc(50% - 8px);
+}
+
+.docsify-copy-code-button::before {
+  clip-path: path("M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z");
+}
+.docsify-copy-code-button::after {
+  clip-path: path("M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z");
+}
+
+.token.keyword {
+  color: #F97583 !important;
+}
+
+.token.function {
+  color: #B392F0 !important;
+}
+
+.token.string {
+  color: #9ECBFF !important;
 }

@@ -215,7 +215,7 @@ impl MacroRegistry {
   }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Token {
   Number(i64, usize),
   Identifier(String, usize),
@@ -428,6 +428,21 @@ impl Lexer {
 
   fn read_symbol(&mut self) -> Token {
     let ch = self.next_char().unwrap();
+
+    if (ch == '=' || ch == '-') && self.peek_char() == Some('>') {
+      return Token::Symbol(
+        format!("{}{}", ch, self.next_char().unwrap()),
+        self.tokens.clone(),
+      );
+    }
+
+    if ch == '-' && self.peek_char() == Some('<') {
+      return Token::Symbol(
+        format!("{}{}", ch, self.next_char().unwrap()),
+        self.tokens.clone(),
+      );
+    }
+
     Token::Symbol(ch.to_string(), self.tokens.clone())
   }
 }
@@ -613,6 +628,64 @@ impl Compiler {
     self.generate_code(processed_tokens)
   }
 
+  fn process_leftbrace(&mut self, i: usize, tokens: Vec<Token>) -> (usize, String, Vec<Token>) {
+    let mut j = i;
+    let mut name_decorators: Vec<Token> = Vec::new();
+    let mut name = String::new();
+
+    while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+      j += 1;
+    }
+
+    while j < tokens.len() && matches!(&tokens[j], Token::Symbol(s, _) if s == "@") {
+      let start = j;
+      j += 1;
+
+      // decorator name + possible arguments
+      while j < tokens.len() && matches!(&tokens[j], Token::Identifier(_, _) | Token::LeftParen(_))
+      {
+        if matches!(&tokens[j], Token::LeftParen(_)) {
+          let mut paren_depth = 1;
+          j += 1;
+          while j < tokens.len() && paren_depth > 0 {
+            match &tokens[j] {
+              Token::LeftParen(_) => paren_depth += 1,
+              Token::RightParen(_) => paren_depth -= 1,
+              _ => {}
+            }
+            j += 1;
+          }
+          break;
+        } else {
+          j += 1;
+        }
+      }
+
+      let end = j;
+      name_decorators.extend_from_slice(&tokens[start..end]);
+
+      while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+        j += 1;
+      }
+    }
+
+    if j < tokens.len() && matches!(&tokens[j], Token::Identifier(i, _) if i != "end") {
+      if let Some(n) = get_token_string(&tokens[j]) {
+        name = n.clone();
+      }
+      j += 1;
+    }
+
+    if j < tokens.len() && matches!(&tokens[j], Token::Symbol(s, _) if s == ":") {
+      if j < tokens.len() && matches!(&tokens[j + 1], Token::Identifier(i, _) if i != "end") {
+        name = format!("{}:{}", name, get_token_string(&tokens[j + 1]).unwrap());
+        j += 2;
+      }
+    }
+
+    return (j, name, name_decorators);
+  }
+
   fn process_macros(
     &mut self,
     tokens: Vec<Token>,
@@ -636,6 +709,69 @@ impl Compiler {
             path.clone(),
             conf.clone(),
           );
+        }
+        Token::LeftBrace(_) => {
+          // find the matching right brace
+          let mut j = i + 1;
+          let mut brace_depth = 1;
+          while j < tokens.len() && brace_depth > 0 {
+            match &tokens[j] {
+              Token::LeftBrace(_) => brace_depth += 1,
+              Token::RightBrace(_) => brace_depth -= 1,
+              _ => {}
+            }
+            j += 1;
+          }
+          let brace_end = j;
+
+          while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+            j += 1;
+          }
+
+          if j < tokens.len() && matches!(&tokens[j], Token::Symbol(s, _) if s == "->") {
+            j += 1;
+
+            let (j, name, name_decorators) = self.process_leftbrace(j, tokens.clone());
+
+            let inner_tokens = &tokens[i + 1..brace_end - 1];
+
+            let mut tokens_to_pass = Vec::new();
+            tokens_to_pass.extend(name_decorators);
+            tokens_to_pass.extend(tokenize(&name));
+            if inner_tokens.len() > 0 {
+              tokens_to_pass.push(Token::LeftParen(0));
+              tokens_to_pass.extend_from_slice(inner_tokens);
+              tokens_to_pass.push(Token::RightParen(0));
+            }
+            let new_tokens = self.compile_class(vec![tokens_to_pass], path.clone(), conf.clone());
+            result.extend(new_tokens);
+            i = j + 1;
+            continue;
+          }
+
+          if j < tokens.len() && matches!(&tokens[j], Token::Symbol(s, _) if s == "-<") {
+            j += 1;
+
+            let (j, name, name_decorators) = self.process_leftbrace(j, tokens.clone());
+
+            let inner_tokens = &tokens[i + 1..brace_end - 1];
+
+            let mut tokens_to_pass = Vec::new();
+            tokens_to_pass.extend(name_decorators);
+            tokens_to_pass.extend(tokenize(&name));
+            let new_tokens = self.compile_enum(
+              vec![tokens_to_pass, inner_tokens.to_vec()],
+              path.clone(),
+              conf.clone(),
+            );
+            result.extend(new_tokens);
+            i = j + 1;
+            continue;
+          }
+
+          // normal push
+          result.push(tokens[i].clone());
+          i += 1;
         }
         _ => {
           result.push(tokens[i].clone());
@@ -891,7 +1027,13 @@ impl Compiler {
         .importmap
         .insert(name.clone(), (cpath.clone(), path.clone(), conf.clone()));
       cargs[1] = vec![Token::String(format!("{}", name), 0)];
-      self.substitute_macro_params(&macro_def.body, &macro_def.params, &cargs, path.clone(), conf.clone())
+      self.substitute_macro_params(
+        &macro_def.body,
+        &macro_def.params,
+        &cargs,
+        path.clone(),
+        conf.clone(),
+      )
     } else if macro_name == "include_bytes" {
       let cpath = get_token_string(&args[0][0]).unwrap();
       let name = format!("bytes://{}", crate::util::normalize_name(cpath));
@@ -899,13 +1041,25 @@ impl Compiler {
       self
         .importmap
         .insert(name.clone(), (cpath.clone(), path.clone(), conf.clone()));
-      self.substitute_macro_params(&macro_def.body, &macro_def.params, &[vec![Token::String(format!("{}", name), 0)]], path.clone(), conf.clone())
+      self.substitute_macro_params(
+        &macro_def.body,
+        &macro_def.params,
+        &[vec![Token::String(format!("{}", name), 0)]],
+        path.clone(),
+        conf.clone(),
+      )
     } else if macro_name == "package" {
       let name = get_token_string(&args[0][0]).unwrap();
       self.last_mod = Some(name.clone());
       Vec::new()
     } else {
-      self.substitute_macro_params(&macro_def.body, &macro_def.params, &args, path.clone(), conf.clone())
+      self.substitute_macro_params(
+        &macro_def.body,
+        &macro_def.params,
+        &args,
+        path.clone(),
+        conf.clone(),
+      )
     };
     result.extend(expanded);
 
@@ -1154,16 +1308,32 @@ impl Compiler {
     let mut variant_groups: Vec<Vec<Token>> = Vec::new();
     let mut current_variant_tokens: Vec<Token> = Vec::new();
 
+    let mut paren_depth = 0;
     for token in variants_tokens {
-      if let Token::Comma(_) = token {
-        if !current_variant_tokens.is_empty() {
-          variant_groups.push(current_variant_tokens);
-          current_variant_tokens = Vec::new();
+      match token {
+        Token::LeftParen(_) => {
+          paren_depth += 1;
+          current_variant_tokens.push(token.clone());
         }
-      } else {
-        current_variant_tokens.push(token.clone());
+        Token::RightParen(_) => {
+          if paren_depth > 0 {
+            paren_depth -= 1;
+          }
+          current_variant_tokens.push(token.clone());
+        }
+        Token::Comma(_) if paren_depth == 0 => {
+          // split only if not inside parentheses
+          if !current_variant_tokens.is_empty() {
+            variant_groups.push(current_variant_tokens);
+            current_variant_tokens = Vec::new();
+          }
+        }
+        _ => {
+          current_variant_tokens.push(token.clone());
+        }
       }
     }
+
     if !current_variant_tokens.is_empty() {
       variant_groups.push(current_variant_tokens);
     }
@@ -1263,7 +1433,10 @@ impl Compiler {
     let mut lua = String::new();
     let mut variant_decorator_lua = String::new();
 
-    lua.push_str(&format!("{name} = make_enum(\"{name}\")\n", name = enum_name));
+    lua.push_str(&format!(
+      "{name} = make_enum(\"{name}\")\n",
+      name = enum_name
+    ));
 
     for (vname, args, decorators) in &variants {
       if let Some(args) = args {
@@ -1378,7 +1551,10 @@ impl Compiler {
     let mut decorator_code = String::new();
     for decorator in enum_decorators.iter().rev() {
       let decorator_str = self.generate_code(decorator.clone());
-      decorator_code.push_str(&format!("{0} = {1}({0}, \"{0}\")\n", enum_name, decorator_str));
+      decorator_code.push_str(&format!(
+        "{0} = {1}({0}, \"{0}\")\n",
+        enum_name, decorator_str
+      ));
     }
     tokenized.extend(tokenize(&decorator_code));
 
@@ -1603,7 +1779,7 @@ impl Compiler {
       }
 
       let mut name_str = self.generate_code(name_tokens.clone()).trim().to_string();
-      
+
       if name_str == "_" {
         arg_index += 1;
         continue;
@@ -1621,10 +1797,7 @@ impl Compiler {
       let (assign_target, assign_expr) = if name_str.contains('.') {
         (name_str.clone(), res_str)
       } else if name_str.starts_with('&') {
-        (
-          name_str.trim_start_matches('&').to_string(),
-          res_str
-        )
+        (name_str.trim_start_matches('&').to_string(), res_str)
       } else {
         (format!("self.{name_str}"), res_str)
       };
@@ -1639,7 +1812,6 @@ impl Compiler {
       } else {
         self_assignments.push_str(&format!("{assign_target} = {assign_expr}\n"));
       }
-      
     }
 
     let init_line = if let Some(parent) = parent_name.clone() {
@@ -1963,7 +2135,10 @@ end
       let mut param_decorator_code = String::new();
       for (arg_name, decorator) in param_decorators {
         let decorator_str = self.generate_code(decorator);
-        param_decorator_code.push_str(&format!("{0} = {1}(self, {0}, \"{0}\")\n", arg_name, decorator_str));
+        param_decorator_code.push_str(&format!(
+          "{0} = {1}(self, {0}, \"{0}\")\n",
+          arg_name, decorator_str
+        ));
       }
       let param_decorator_tokens = tokenize(&param_decorator_code);
 
@@ -2002,7 +2177,10 @@ end
     let mut decorator_code = String::new();
     for decorator in class_decorators.iter().rev() {
       let decorator_str = self.generate_code(decorator.clone());
-      decorator_code.push_str(&format!("{0} = {1}({0}, \"{0}\")\n", class_name, decorator_str));
+      decorator_code.push_str(&format!(
+        "{0} = {1}({0}, \"{0}\")\n",
+        class_name, decorator_str
+      ));
     }
     tokens.extend(tokenize(&decorator_code));
 
@@ -2102,6 +2280,8 @@ end
     let mut enum_body = vec![];
     let mut param_sig = vec![];
     let mut param_body = vec![];
+    let mut function_sig = vec![];
+    let mut function_body = vec![];
 
     let mut i = 0;
     while i < body_tokens.len() {
@@ -2162,6 +2342,9 @@ end
           } else if params[0] == "_enum" {
             enum_sig = signature_tokens;
             enum_body = current_body;
+          } else if params[0] == "_function" {
+            function_sig = signature_tokens;
+            function_body = current_body;
           }
         } else if params.len() == 2 {
           if params[0] == "_class" && params[1] == "method" {
@@ -2178,7 +2361,9 @@ end
       }
     }
 
-    let mut lua_code = String::from("function(...)\n    local arg1, arg2, arg3 = select(1, ...)\n local name = arg2\n if arg3 then name = arg3 end\n");
+    let mut lua_code = String::from(
+      "function(...)\n    local arg1, arg2, arg3 = select(1, ...)\n local name = arg2\n if arg3 then name = arg3 end\n",
+    );
 
     if !common_body.is_empty() {
       lua_code.push_str(self.generate_code(common_body).as_str());
@@ -2195,7 +2380,6 @@ end
       }
     };
 
-    // 1. param decorator
     if !param_body.is_empty() {
       let sig_str = self.generate_code(param_sig.clone());
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
@@ -2208,7 +2392,18 @@ end
       lua_code.push_str(&body);
     }
 
-    // 2. class method decorator
+    if !function_body.is_empty() {
+      let sig_str = self.generate_code(function_sig.clone());
+      let inner_sig_str = &sig_str[1..sig_str.len() - 1];
+      let body = self.generate_code(function_body);
+      lua_code.push_str(&format!(
+        "    {} type(arg1) == \"function\" and not arg3 then\n",
+        if_or_elseif()
+      ));
+      lua_code.push_str(&format!("      local {} = arg1\n", inner_sig_str));
+      lua_code.push_str(&body);
+    }
+
     if !class_method_body.is_empty() {
       let sig_str = self.generate_code(class_method_sig.clone());
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
@@ -2221,7 +2416,6 @@ end
       lua_code.push_str(&body);
     }
 
-    // 3. class decorator
     if !class_body.is_empty() {
       let sig_str = self.generate_code(class_sig.clone());
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
@@ -2234,7 +2428,6 @@ end
       lua_code.push_str(&body);
     }
 
-    // 4. enum variant decorator
     if !enum_variant_body.is_empty() {
       let sig_str = self.generate_code(enum_variant_sig.clone());
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
@@ -2317,7 +2510,6 @@ end
       lua_code.push_str("\n      end\n");
     }
 
-    // 5. enum decorator
     if !enum_body.is_empty() {
       let sig_str = self.generate_code(enum_sig.clone());
       let inner_sig_str = &sig_str[1..sig_str.len() - 1];
@@ -2788,9 +2980,17 @@ end
   fn generate_code(&self, tokens: Vec<Token>) -> String {
     let mut result = String::new();
     let mut i = 0;
+    // let mut passed: std::collections::HashSet<&Token> = std::collections::HashSet::new();
+    let hooks: HashMap<&Token, String> = HashMap::new();
+    let mut hooks_int: HashMap<usize, String> = HashMap::new();
 
     while i < tokens.len() {
       let token = &tokens[i];
+
+      // if passed.contains(token) {
+      //   i += 1;
+      //   continue;
+      // }
 
       match token {
         Token::Identifier(name, _) if name == "f" => {
@@ -2882,6 +3082,239 @@ end
           result.push_str("}");
         }
         Token::LeftParen(_) => {
+          let mut j = i + 1;
+          let mut paren_depth = 1;
+
+          while j < tokens.len() && paren_depth > 0 {
+            match tokens[j] {
+              Token::LeftParen(_) => paren_depth += 1,
+              Token::RightParen(_) => paren_depth -= 1,
+              _ => {}
+            }
+            j += 1;
+          }
+
+          let args_end = j;
+          let mut name = String::new();
+          let mut parent = String::new();
+          let mut decorators: Vec<(String, Vec<Token>)> = Vec::new();
+
+          while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+            j += 1;
+          }
+
+          while j + 1 < tokens.len() {
+            match (&tokens[j], &tokens[j + 1]) {
+              (Token::Symbol(sym, _), Token::Identifier(id, _)) if sym == "@" => {
+                let decor_name = id.clone();
+                j += 2;
+
+                let mut decor_args = Vec::new();
+                if j < tokens.len() && matches!(tokens[j], Token::LeftParen(_)) {
+                  decor_args.push(Token::Whitespace("".to_string(), 1));
+                  let mut depth = 1;
+                  j += 1;
+
+                  while j < tokens.len() && depth > 0 {
+                    match &tokens[j] {
+                      Token::LeftParen(_) | Token::LeftBrace(_) => depth += 1,
+                      Token::RightParen(_) | Token::RightBrace(_) => depth -= 1,
+                      _ => {}
+                    }
+
+                    if depth > 0 {
+                      decor_args.push(tokens[j].clone());
+                    }
+                    j += 1;
+                  }
+                }
+
+                decorators.push((decor_name, decor_args));
+              }
+
+              (Token::Whitespace(_, _), _) => j += 1,
+              _ => break,
+            }
+          }
+
+          if j < tokens.len() && matches!(&tokens[j], Token::Identifier(i, _) if i != "end") {
+            if let Some(n) = get_token_string(&tokens[j]) {
+              if n == "async" {
+                decorators.push(("async".to_string(), Vec::new()))
+              } else {
+                name = format!(" {}", n.clone());
+              }
+            }
+            j += 1;
+          }
+
+          if j < tokens.len() && matches!(&tokens[j], Token::Symbol(s, _) if s == ":") {
+            if j < tokens.len() && matches!(&tokens[j + 1], Token::Identifier(i, _) if i != "end") {
+              let parent_name = get_token_string(&tokens[j + 1]).unwrap();
+              name = format!("{}:{}", name, parent_name);
+              parent = parent_name.clone();
+              j += 2;
+            }
+          }
+
+          while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+            j += 1;
+          }
+
+          if j < tokens.len() {
+            if let Token::Symbol(ref sym, _) = tokens[j] {
+              if sym == "=>" {
+                let args_tokens = tokens[i..args_end].to_vec();
+                let mut decorated_args: Vec<(String, Vec<(String, Vec<Token>)>)> = Vec::new();
+                let mut k = 0;
+                let mut current_decorators: Vec<(String, Vec<Token>)> = Vec::new();
+                let mut vararg = String::new();
+
+                while k < args_tokens.len() {
+                  match &args_tokens[k] {
+                    Token::Symbol(sym, _) if sym == "@" && k + 1 < args_tokens.len() => {
+                      if let Token::Identifier(param_decorator, _) = &args_tokens[k + 1] {
+                        k += 2;
+
+                        let mut decor_args = Vec::new();
+                        if k < args_tokens.len() && matches!(args_tokens[k], Token::LeftParen(_)) {
+                          let mut depth = 1;
+                          k += 1;
+                          while k < args_tokens.len() && depth > 0 {
+                            match args_tokens[k] {
+                              Token::LeftParen(_) | Token::LeftBrace(_) => depth += 1,
+                              Token::RightParen(_) | Token::RightBrace(_) => depth -= 1,
+                              _ => {}
+                            }
+                            if depth > 0 {
+                              decor_args.push(args_tokens[k].clone());
+                            }
+                            k += 1;
+                          }
+                        }
+
+                        while k < tokens.len() && matches!(args_tokens[k], Token::Whitespace(_, _))
+                        {
+                          k += 1;
+                        }
+
+                        current_decorators.push((param_decorator.clone(), decor_args));
+                      }
+                    }
+                    Token::Identifier(param_name, _) => {
+                      decorated_args.push((param_name.clone(), current_decorators.clone()));
+                      current_decorators = Vec::new();
+                      k += 1;
+                    }
+                    Token::Symbol(sym, _) if sym == "," => {
+                      k += 1;
+                    }
+                    Token::Symbol(sym, _) if sym == "." => {
+                      vararg.push('.');
+                      k += 1;
+                    }
+                    Token::Whitespace(_, _) => k += 1,
+                    _ => {
+                      k += 1;
+                    }
+                  }
+                }
+
+                let mut args_str = String::new();
+                for (idx, (param_name, _)) in decorated_args.iter().enumerate() {
+                  args_str.push_str(param_name);
+                  if idx != decorated_args.len() - 1 && vararg.is_empty() {
+                    args_str.push_str(", ");
+                  }
+                }
+                if !vararg.is_empty() {
+                  args_str.push_str(&vararg);
+                }
+
+                let mut prefix = String::new();
+
+                if decorators.len() > 0 {
+                  let mut k = j + 1;
+                  let mut block_depth = 0;
+                  while k < tokens.len() {
+                    match tokens[k] {
+                      Token::Identifier(ref id, _)
+                        if id == "function" || id == "do" || id == "if" =>
+                      {
+                        block_depth += 1
+                      }
+                      Token::Identifier(ref id, _) if id == "end" => {
+                        if block_depth == 0 {
+                          break;
+                        } else {
+                          block_depth -= 1;
+                        }
+                      }
+                      _ => {}
+                    }
+                    k += 1;
+                  }
+
+                  let mut hook_close = String::new();
+                  for (decor, args) in decorators.iter().rev() {
+                    let args_str = self.generate_code(args.clone());
+                    prefix = format!(
+                      "{}{}({}{}",
+                      decor,
+                      if args.is_empty() {
+                        "".to_string()
+                      } else {
+                        format!("({})", args_str)
+                      },
+                      if parent.is_empty() {
+                        "".to_string()
+                      } else {
+                        format!("{},", parent)
+                      },
+                      prefix
+                    );
+                    if decor == "async" {
+                      hook_close.push(')');
+                    } else {
+                      hook_close.push_str(&format!(", {:?})", name.trim()));
+                    }
+                  }
+
+                  hooks_int.insert(k, hook_close);
+
+                  if !name.is_empty() {
+                    prefix = format!("{} = {}", name, prefix);
+                    name = String::new();
+                  }
+                }
+
+                let mut deco_str = String::new();
+                for (_, (param_name, decors)) in decorated_args.iter().enumerate() {
+                  for (decor_name, decor_args) in decors {
+                    let decor_args_str = self.generate_code(decor_args.clone());
+                    deco_str.push_str(&format!("\n{} = ", param_name));
+                    deco_str.push_str(&format!("{}", decor_name));
+                    if !decor_args_str.is_empty() {
+                      deco_str.push_str(&format!("({})", decor_args_str));
+                    }
+                    deco_str.push_str(&format!(
+                      "(empty_class(), {}, {:?})",
+                      param_name,
+                      param_name
+                    ));
+                  }
+                }
+
+                let fn_code = format!("{}function{}({}){}", prefix, name, args_str, deco_str);
+
+                result.push_str(&fn_code);
+
+                i = j + 1;
+                continue;
+              }
+            }
+          }
+
           result.push_str("(");
         }
         Token::RightParen(_) => {
@@ -2897,6 +3330,14 @@ end
           // already parsed
         }
         Token::EOF(_) => {}
+      }
+
+      if let Some(hook) = hooks.get(&tokens[i]) {
+        result.push_str(hook);
+      }
+
+      if let Some(hook) = hooks_int.get(&i) {
+        result.push_str(hook);
       }
 
       i += 1;

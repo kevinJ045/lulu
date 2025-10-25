@@ -172,7 +172,7 @@ local person = Person {
 
 -- You can also do multiple values as:
 
-class! Person(#name, #id, ., #city);
+class! Person(#name, #id, _, #city);
 
 -- And call with:
 
@@ -187,7 +187,7 @@ local person = Person({
 
 ## Decorators
 
-The class! macro also supports experimental decorators for classes, methods, and parameters, allowing for powerful metaprogramming.
+The class! macro also supports experimental decorators for classes, methods, and parameters, allowing for metaprogramming.
 
 - **Class Decorators**: Applied to the class itself.
 - **Method Decorators**: Applied to a method within a class.

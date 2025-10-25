@@ -30,10 +30,12 @@ function fprint(...)
   print(unpack(args))
 end
 
-function namespace(tbl, chunk)
-  chunk = chunk or function() end
-  setfenv(chunk, setmetatable(tbl or {}, { __index = _G }))
-  return chunk(tbl)
+function namespace(tbl)
+  return function(chunk)
+    chunk = chunk or function() end
+    setfenv(chunk, setmetatable(tbl or {}, { __index = _G }))
+    return chunk(tbl)
+  end
 end
 
 function make_enum(name)
@@ -166,6 +168,14 @@ function iseq(first, second)
   end
 
   return result
+end
+
+function empty_class()
+  return {
+    __class = {
+      empty = true
+    }
+  }
 end
 
 function instanceof(obj, class)
@@ -720,3 +730,46 @@ class! @into_collectible("collect") Sandbox, {
     return exec_sandboxed(code, name or "lulu::sandbox", self.env)
   }
 }
+
+
+local function extract_serializable(o, parent)
+  parent = parent or {}
+  if type(o) ~= "table" then
+    if type(o) == "string" or type(o) == "number" or type(o) == "boolean" then
+      return o
+    else
+      return nil
+    end
+  end
+
+  if parent[o] then
+    return nil
+  end
+  parent[o] = true
+
+  local result = {}
+  for k, v in pairs(o) do
+    if type(k) == "string" or type(k) == "number" then
+      if type(k) == "number" or k:sub(1, 2) ~= "__" then
+        local sv = extract_serializable(v, parent)
+        if sv ~= nil then
+          result[k] = sv
+        end
+      end
+    end
+  end
+
+  return result
+end
+
+function Serializable(type)
+  return function(_class)
+    () _class:serialize =>
+      return serde[type].encode(extract_serializable(self))
+    end
+    (arg) _class:deserialize =>
+      return _class(serde[type].decode(arg))
+    end
+    return _class
+  end
+end

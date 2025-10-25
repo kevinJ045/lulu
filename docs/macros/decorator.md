@@ -117,6 +117,12 @@ local deprecated = decorator! {
 
     return _class
   }
+  (_function) {
+    return function(...)
+      print(f"Warning: Function '{name}' is deprecated.")
+      return _function(...)
+    end
+  }
   (_self, value) {
     print(f"Warning: Parameter '{name}' is deprecated.")
     return value
