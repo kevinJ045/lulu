@@ -19,14 +19,10 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::sync::Mutex;
-use std::thread::JoinHandle;
+use tokio::task::JoinHandle;
 use tokio::time;
 use zip::write::ExtendedFileOptions;
 use zip::{ZipWriter, write::FileOptions};
-
-lazy_static::lazy_static! {
-  static ref THREADS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
-}
 
 #[derive(Clone)]
 pub struct LuluByteArray {
@@ -468,10 +464,21 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     "request_env_load",
     lua.create_function({
       let lulu_rc = lulu.clone();
+      let imported = Arc::new(Mutex::new(Vec::new()));
       move |lua, (env, name): (String, Option<String>)| {
         if let Some(module) = get_std_module(&env) {
+          let mut imports = imported.lock().unwrap();
+          let name = if let Some(name) = name {
+            name.clone()
+          } else {
+            env.clone()
+          };
+          if imports.contains(&name) {
+            return Ok(mlua::Value::Boolean(true));
+          }
           module.register(lua)?;
-          return Ok(true);
+          imports.push(name);
+          return Ok(mlua::Value::Boolean(true));
         }
         if let Ok(modules) = lua
           .globals()
@@ -488,16 +495,14 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
             let lulu = &lulu_rc;
             let module = lulu.exec_mod(&mn)?;
 
-            if let Some(name) = name {
-              lua.globals().set(name, module)?;
-            } else {
-              lua.globals().set(env, module)?;
-            }
+            let tbl = lua.create_table()?;
+            tbl.set("__into", name)?;
+            tbl.set("__value", module)?;
 
-            return Ok(true);
+            return Ok(mlua::Value::Table(tbl));
           }
         }
-        Ok(false)
+        Ok(mlua::Value::Boolean(false))
       }
     })?,
   )?;
@@ -749,26 +754,6 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
     )?,
   )?;
 
-  let spawn_fn = lua.create_function(|_, code: String| -> mlua::Result<()> {
-    let handle = std::thread::spawn(move || {
-      let lua = unsafe { mlua::Lua::unsafe_new() };
-      let _ = lua.load(&code).exec();
-    });
-    THREADS.lock().unwrap().push(handle);
-    Ok(())
-  })?;
-  lua.globals().set("spawn_thread", spawn_fn)?;
-
-  lua.globals().set(
-    "join_threads",
-    lua.create_function(|_, ()| {
-      for handle in THREADS.lock().unwrap().drain(..) {
-        let _ = handle.join();
-      }
-      Ok(())
-    })?,
-  )?;
-
   lua.globals().set(
     "setup_downloader",
     lua.create_function(|lua, options: Option<mlua::Table>| {
@@ -986,6 +971,10 @@ lazy_static::lazy_static! {
       RwLock::new(HashMap::new());
 }
 
+lazy_static::lazy_static! {
+  pub static ref TOK_ASYNC_HANDLES: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
+}
+
 #[derive(Clone)]
 struct LuluTcpStream {
   reader: Arc<TokioMutex<ReadHalf<TcpStream>>>,
@@ -1163,6 +1152,13 @@ impl mlua::UserData for LuluWebSocket {
   }
 }
 
+#[derive(Clone)]
+pub struct LuluThreadHandle {
+  pub handle: Arc<Mutex<Option<JoinHandle<mlua::Result<mlua::Value>>>>>,
+}
+
+impl mlua::UserData for LuluThreadHandle {}
+
 struct ServerRequest {
   req: Request,
   resp_tx: oneshot::Sender<Response>,
@@ -1327,10 +1323,7 @@ pub fn init_std_modules() {
           }
         })
       }
-      fn serde_into_json<V>(
-        lua: &mlua::Lua,
-        value: V,
-      ) -> mlua::Result<mlua::Value>
+      fn serde_into_json<V>(lua: &mlua::Lua, value: V) -> mlua::Result<mlua::Value>
       where
         V: serde::Serialize,
       {
@@ -1463,7 +1456,7 @@ pub fn init_std_modules() {
               .await
               .map_err(LuaError::external)?;
 
-            tokio::spawn(async move {
+            let listener = tokio::spawn(async move {
               if let Err(e) = axum::serve(listener, app).await {
                 eprintln!("Server error: {}", e);
               }
@@ -1485,7 +1478,7 @@ pub fn init_std_modules() {
                   .get("host")
                   .and_then(|v| v.to_str().ok())
                   .unwrap_or("");
-                req_table.set("url", format!("{host}{uri}"))?;
+                req_table.set("host", host)?;
                 req_table.set("uri", uri)?;
 
                 let headers_table = lua.create_table()?;
@@ -1531,6 +1524,7 @@ pub fn init_std_modules() {
               Ok::<(), LuaError>(())
             });
 
+            TOK_ASYNC_HANDLES.lock().unwrap().push(listener);
             Ok(())
           },
         )?,
@@ -1587,18 +1581,6 @@ pub fn init_std_modules() {
       Ok(net_mod)
     })
     .add_file(
-      "keepalive.lua",
-      r#"
-      function net.keepalive()
-        async(function()
-          while true do
-            coroutine.yield()
-          end
-        end)
-      end
-    "#,
-    )
-    .add_file(
       "net.lua",
       std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/net.lua").unwrap(),
     )
@@ -1612,4 +1594,69 @@ pub fn init_std_modules() {
         .unwrap(),
     )
     .into();
+
+  create_std_module("threads").on_register(|lua, threads_mod| {
+    threads_mod.set(
+      "spawn",
+      lua.create_async_function(|lua, func: mlua::Function| async move {
+        let handle = tokio::spawn(async move { func.call_async::<mlua::Value>(()).await });
+
+        let handle = Arc::new(Mutex::new(Some(handle)));
+        let handle_ref = handle.clone();
+
+        TOK_ASYNC_HANDLES
+          .lock()
+          .unwrap()
+          .push(tokio::spawn(async move {
+            tokio::spawn(async move {
+              let join_handle = {
+                let mut lock = handle.lock().unwrap();
+                lock.take()
+              };
+
+              if let Some(jh) = join_handle {
+                let _ = jh.await;
+              }
+            });
+          }));
+
+        Ok(lua.create_any_userdata(LuluThreadHandle { handle: handle_ref })?)
+      })?,
+    )?;
+
+    // threads.join(task)
+    threads_mod.set(
+      "join",
+      lua.create_async_function(|_, handle_ud: mlua::AnyUserData| async move {
+        let handle_arc = {
+          let handle = handle_ud.borrow::<LuluThreadHandle>()?;
+          handle.handle.clone()
+        };
+
+        let join_handle_opt = {
+          let mut opt = handle_arc.lock().unwrap();
+          opt.take()
+        };
+
+        if let Some(join_handle) = join_handle_opt {
+          let result = join_handle.await.map_err(LuaError::external)??;
+          Ok(result)
+        } else {
+          Ok(mlua::Value::Nil)
+        }
+      })?,
+    )?;
+
+    threads_mod.set(
+      "sleep",
+      lua.create_async_function(|_, ms: u64| async move {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        Ok(())
+      })?,
+    )?;
+
+    Ok(threads_mod)
+  }).into();
+
+  
 }

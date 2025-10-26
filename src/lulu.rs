@@ -271,7 +271,10 @@ impl Lulu {
           args[1](getfenv(1))
         elseif type(args[1]) == "table" then
           for k, v in pairs(args[1]) do
-            v(getfenv(1))
+            local r = v(getfenv(1))
+            if type(r) == "table" and r.__into then
+              getfenv(1)[r.__into] = r.__value
+            end
           end
         end
       })
@@ -384,12 +387,6 @@ impl Lulu {
         _ => break,
       }
     }
-
-    self
-      .lua
-      .globals()
-      .get::<mlua::Function>("join_threads")?
-      .call::<()>(())?;
 
     result
   }

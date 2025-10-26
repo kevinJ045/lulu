@@ -2,7 +2,7 @@ use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle, set_exec_path};
 use crate::cli::{CacheCommand, Cli, Commands};
 use crate::conf::load_lulu_conf;
 use crate::lulu::Lulu;
-use crate::ops::register_consts;
+use crate::ops::{register_consts, TOK_ASYNC_HANDLES};
 use crate::package_manager::PackageManager;
 use clap::Parser;
 use mlua::Result;
@@ -74,7 +74,6 @@ async fn main() -> Result<()> {
       )
       .await
     );
-    Ok(())
   } else {
     let cli = Cli::parse();
 
@@ -94,13 +93,11 @@ async fn main() -> Result<()> {
             file.join(".lib").join(name)
           };
 
-          if runpath.ends_with(".lulib"){
+          if runpath.ends_with(".lulib") {
             let mods = load_lulib(&runpath)?;
             run_bundle(mods, &mut Lulu::new(Some(args.clone()), Some(runpath))).await?;
           } else {
-            std::process::Command::new(runpath)
-              .args(args)
-              .status()?;
+            std::process::Command::new(runpath).args(args).status()?;
           }
           Ok(())
         } else if file.extension().and_then(|s| s.to_str()) == Some("lulib") {
@@ -128,13 +125,11 @@ async fn main() -> Result<()> {
           );
           lulu.exec_entry_mod_path(file.clone()).await
         });
-        Ok(())
       }
       Commands::Compile { file } => {
         let path = std::fs::canonicalize(file)?;
         let mut lulu = Lulu::new(None, Some(path.clone().parent().unwrap().to_path_buf()));
         println!("{}", lulu.compile(path.clone())?);
-        Ok(())
       }
       Commands::Test { file, test, args } => {
         let mut lulu = Lulu::new(
@@ -144,11 +139,10 @@ async fn main() -> Result<()> {
         lulu.compiler.env = "test".to_string();
         lulu.compiler.current_test = test.clone();
         handle_error!(lulu.exec_entry_mod_path(file.clone()).await);
-        Ok(())
       }
       Commands::Bundle { file, output } => {
         let mut lulu = Lulu::new(None, None);
-        bundle_lulu_or_exec(&mut lulu, file.clone(), output.clone())
+        bundle_lulu_or_exec(&mut lulu, file.clone(), output.clone())?;
       }
       Commands::Resolve { item } => {
         let pkg_manager = PackageManager::new().map_err(|e| mlua::Error::external(e))?;
@@ -189,8 +183,6 @@ async fn main() -> Result<()> {
           }
         }
         .await;
-
-        Ok(())
       }
       Commands::Build { path } => {
         let conf_path = path.join("lulu.conf.lua");
@@ -273,16 +265,18 @@ async fn main() -> Result<()> {
 
           lua.globals().set(
             "download_file",
-            lua.load(mlua::chunk! {
-              local f = coroutine.create(function(...)
-                download_file_async(...)
-                return false
-              end)
-              local done = true
-              while done do
-                done = coroutine.resume(f, ...)
-              end
-            }).into_function()?,
+            lua
+              .load(mlua::chunk! {
+                local f = coroutine.create(function(...)
+                  download_file_async(...)
+                  return false
+                end)
+                local done = true
+                while done do
+                  done = coroutine.resume(f, ...)
+                end
+              })
+              .into_function()?,
           )?;
 
           lua.globals().set(
@@ -293,15 +287,21 @@ async fn main() -> Result<()> {
             })?,
           )?;
 
-          let stubs_fn = lua.create_async_function(async move |_, stubs: HashMap<String, String>| {
+          let stubs_fn =
+            lua.create_async_function(async move |_, stubs: HashMap<String, String>| {
               let current_os = std::env::consts::OS;
 
               let url = if let Some(url) = stubs.get(current_os) {
                 Ok(url)
-              } else if let Some(url) = stubs.get(&format!("{}-{}", current_os, std::env::consts::ARCH)) {
+              } else if let Some(url) =
+                stubs.get(&format!("{}-{}", current_os, std::env::consts::ARCH))
+              {
                 Ok(url)
               } else {
-                Err(mlua::Error::external(format!("No stub found for OS: {}", current_os)))
+                Err(mlua::Error::external(format!(
+                  "No stub found for OS: {}",
+                  current_os
+                )))
               }?;
 
               let path = if url.starts_with("http") {
@@ -321,7 +321,7 @@ async fn main() -> Result<()> {
                   .split('/')
                   .last()
                   .ok_or_else(|| mlua::Error::external("Invalid URL: missing file name"))?;
-                
+
                 let file_path = cache_path.join(file_name);
 
                 #[cfg(unix)]
@@ -336,28 +336,27 @@ async fn main() -> Result<()> {
               } else {
                 Path::new(url).to_path_buf()
               };
-              
+
               set_exec_path(path);
               Ok(())
             })?;
 
-          lua.globals().set(
-            "stubs_async",
-            stubs_fn
-          )?;
+          lua.globals().set("stubs_async", stubs_fn)?;
 
           lua.globals().set(
             "stubs",
-            lua.load(mlua::chunk! {
-              local f = coroutine.create(function(...)
-                stubs_async(...)
-                return false
-              end)
-              local done = true
-              while done do
-                done = coroutine.resume(f, ...)
-              end
-            }).into_function()?,
+            lua
+              .load(mlua::chunk! {
+                local f = coroutine.create(function(...)
+                  stubs_async(...)
+                  return false
+                end)
+                local done = true
+                while done do
+                  done = coroutine.resume(f, ...)
+                end
+              })
+              .into_function()?,
           )?;
 
           let larc = lulu_arc.clone();
@@ -421,7 +420,6 @@ async fn main() -> Result<()> {
 
           handle_error!(build_fn_lua.call::<()>(()));
         }
-        Ok(())
       }
       Commands::Update { packages, project } => {
         let pkg_manager = PackageManager::new().map_err(|e| {
@@ -445,7 +443,6 @@ async fn main() -> Result<()> {
         }
         .await;
 
-        Ok(())
       }
       Commands::New {
         name,
@@ -454,7 +451,6 @@ async fn main() -> Result<()> {
         ignore,
       } => {
         project::new(name.clone(), *git, *ignore, *lib);
-        Ok(())
       }
       Commands::Cache { cache_command } => {
         let pkg_manager = PackageManager::new().map_err(|e| {
@@ -487,9 +483,13 @@ async fn main() -> Result<()> {
             }
           }
         }
-
-        Ok(())
       }
     }
   }
+
+  let handles = std::mem::take(&mut *TOK_ASYNC_HANDLES.lock().unwrap());
+  for handle in handles {
+    let _ = handle.await;
+  }
+  Ok(())
 }

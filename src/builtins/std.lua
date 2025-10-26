@@ -838,7 +838,7 @@ lulib = {}
 setmetatable(lulib, {
   __call = function(tbl, name, env)
     return function()
-      request_env_load(env, name)
+      return request_env_load(env, name)
     end
   end,
   __index = function(tbl, key)
