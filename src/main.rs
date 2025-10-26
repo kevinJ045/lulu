@@ -62,6 +62,7 @@ macro_rules! into_exec_command {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<()> {
+  crate::ops::init_std_modules();
   if let Some(mods) = bundle::load_embedded_scripts() {
     handle_error!(
       run_bundle(

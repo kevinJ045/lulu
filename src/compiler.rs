@@ -686,6 +686,76 @@ impl Compiler {
     return (j, name, name_decorators);
   }
 
+  fn process_lulib_import(
+    &mut self,
+    i: usize,
+    tokens: &Vec<Token>,
+    path: Option<String>,
+    conf: Option<LuluConf>,
+  ) -> Option<(usize, String, String)> {
+    let mut j = i;
+
+    while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+      j += 1;
+    }
+
+    if j < tokens.len() && matches!(&tokens[j], Token::LeftBrace(_)) {
+      j += 1;
+      while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+        j += 1;
+      }
+
+      let mut name = String::new();
+      let mut cpath = String::new();
+
+      if j < tokens.len() && matches!(&tokens[j], Token::Identifier(i, _) if i != "end") {
+        if let Some(n) = get_token_string(&tokens[j]) {
+          name = n.clone();
+        }
+        j += 1;
+      }
+
+      while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+        j += 1;
+      }
+
+      if j < tokens.len() && matches!(&tokens[j], Token::Comma(_)) {
+        j += 1;
+      }
+
+      while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+        j += 1;
+      }
+
+      if j < tokens.len() && matches!(&tokens[j], Token::String(_, _)) {
+        if let Some(n) = get_token_string(&tokens[j]) {
+          cpath = n.clone();
+        }
+        j += 1;
+      }
+
+      let mut modn = String::new();
+      if !cpath.is_empty() {
+        let modname = crate::util::normalize_name(&cpath);
+        modn = modname.clone();
+
+        self
+          .importmap
+          .insert(modname.clone(), (cpath.clone(), path.clone(), conf.clone()));
+      }
+
+      while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+        j += 1;
+      }
+
+      j += 1;
+
+      return Some((j, name, modn))
+    }
+
+    None
+  }
+
   fn process_macros(
     &mut self,
     tokens: Vec<Token>,
@@ -770,6 +840,52 @@ impl Compiler {
           }
 
           // normal push
+          result.push(tokens[i].clone());
+          i += 1;
+        }
+        Token::Identifier(ident, _) if ident == "using" => {
+          let mut j = i + 2;
+          if j < tokens.len()
+            && matches!(&tokens[j], Token::Identifier(ident, _) if ident == "lulib")
+          {
+            j += 1;
+
+            if let Some((j, name, modn)) = self.process_lulib_import(j, &tokens, path.clone(), conf.clone()) {
+              result.extend(vec![
+                Token::Identifier("using ".to_string(), 1),
+                Token::Symbol("{ ".to_string(), 1),
+                Token::Identifier("lulib".to_string(), 1),
+                Token::Symbol("(".to_string(), 1),
+                Token::String(name, 1),
+                Token::Comma(1),
+                Token::String(modn, 1),
+                Token::Symbol(")".to_string(), 1),
+                Token::Symbol(" }".to_string(), 1),
+              ]);
+
+              i = j;
+              continue;
+            }
+          }
+
+          result.push(tokens[i].clone());
+          i += 1;
+        }
+        Token::Identifier(ident, _) if ident == "lulib" => {
+          if let Some((j, name, modn)) = self.process_lulib_import(i + 1, &tokens, path.clone(), conf.clone()) {
+            result.extend(vec![
+              Token::Identifier("lulib".to_string(), 1),
+              Token::Symbol("(".to_string(), 1),
+              Token::String(name, 1),
+              Token::Comma(1),
+              Token::String(modn, 1),
+              Token::Symbol(")".to_string(), 1),
+            ]);
+
+            i = j;
+            continue;
+          }
+
           result.push(tokens[i].clone());
           i += 1;
         }
@@ -3299,8 +3415,7 @@ end
                     }
                     deco_str.push_str(&format!(
                       "(empty_class(), {}, {:?})",
-                      param_name,
-                      param_name
+                      param_name, param_name
                     ));
                   }
                 }

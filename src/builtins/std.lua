@@ -6,7 +6,11 @@ macro {
 function dump_item_into_string(o, indent)
   indent = indent or 0
   if type(o) == 'table' then
-    local s = '{\n'
+    local s = ''
+    if o.__class then
+      s = "Instance "
+    end
+    s = s .. '{\n'
     for k, v in pairs(o) do
       if type(k) == "number" or k:sub(1, 2) ~= "__" then
         s = s .. string.rep('  ', indent + 1) .. tostring(k) .. ' = ' .. dump_item_into_string(v, indent + 1) .. ',\n'
@@ -534,7 +538,105 @@ class! @into_collectible("collect") Vec, {
     return Vec({unpack(self.items)})
   }
 
+  serialize(keep){
+    local mapped = self:map(function(item)
+      if item.serialize then
+        return item:serialize()
+      else
+        return "\"" .. tostring(item) .. "\""
+      end
+    end)
+
+    if keep then return mapped end
+
+    return mapped:__tostring()
+  }
+
+  deserialize(thing, _type){
+    local items = Vec()
+    for k, v in pairs(thing) do
+      if type(_type) == "table" and _type.__call_init then
+        items:push(_type(v))
+      else
+        items:push(v)
+      end
+    end
+    return items
+  }
+
+  of(_type){
+    return {
+      __is_vec = true,
+      deserialize = function(thing, value)
+        if not value then return value end
+        return Vec:deserialize(value, _type)
+      end
+    }
+  }
 }
+
+local function extract_serializable(o, parent)
+  parent = parent or {}
+  if type(o) ~= "table" then
+    if type(o) == "string" or type(o) == "number" or type(o) == "boolean" then
+      return o
+    else
+      return nil
+    end
+  end
+
+  if instanceof(o, Vec) then
+    o = o.items
+  end
+
+  if parent[o] then
+    return nil
+  end
+  parent[o] = true
+
+  local result = {}
+  for k, v in pairs(o) do
+    if type(k) == "string" or type(k) == "number" then
+      if type(k) == "number" or k:sub(1, 2) ~= "__" then
+        local sv = extract_serializable(v, parent)
+        if sv ~= nil then
+          result[k] = sv
+        end
+      end
+    end
+  end
+
+  return result
+end
+
+function Deserializable(_stype)
+  return function(_self, value, name)
+    local deserialize = not instanceof(value, _stype)
+    if _stype.__is_vec then
+      deserialize = not instanceof(value, Vec)
+    end
+    if deserialize then
+      return _stype:deserialize(value)
+    else
+      return value
+    end
+  end
+end
+
+function Serializable(_stype)
+  return function(_class)
+    () _class:serialize =>
+      return serde[_stype].encode(extract_serializable(self))
+    end
+    () _class:__tostring =>
+      return self:serialize()
+    end
+    (arg) _class:deserialize =>
+      return _class(serde[_stype].decode(arg))
+    end
+    return _class
+  end
+end
 
 class! @into_collectible("to_string") String, {
   init(s){
@@ -732,44 +834,16 @@ class! @into_collectible("collect") Sandbox, {
 }
 
 
-local function extract_serializable(o, parent)
-  parent = parent or {}
-  if type(o) ~= "table" then
-    if type(o) == "string" or type(o) == "number" or type(o) == "boolean" then
-      return o
-    else
-      return nil
+lulib = {}
+setmetatable(lulib, {
+  __call = function(tbl, name, env)
+    return function()
+      request_env_load(env, name)
+    end
+  end,
+  __index = function(tbl, key)
+    return function()
+      request_env_load(key)
     end
   end
-
-  if parent[o] then
-    return nil
-  end
-  parent[o] = true
-
-  local result = {}
-  for k, v in pairs(o) do
-    if type(k) == "string" or type(k) == "number" then
-      if type(k) == "number" or k:sub(1, 2) ~= "__" then
-        local sv = extract_serializable(v, parent)
-        if sv ~= nil then
-          result[k] = sv
-        end
-      end
-    end
-  end
-
-  return result
-end
-
-function Serializable(type)
-  return function(_class)
-    () _class:serialize =>
-      return serde[type].encode(extract_serializable(self))
-    end
-    (arg) _class:deserialize =>
-      return _class(serde[type].decode(arg))
-    end
-    return _class
-  end
-end
+})

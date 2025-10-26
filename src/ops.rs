@@ -388,196 +388,6 @@ fn create_std(lua: &Lua) -> mlua::Result<()> {
   )?;
   std.set("re", re_mod)?;
 
-  let zip_mod = lua.create_table()?;
-  zip_mod.set(
-    "create",
-    lua.create_function(|_, (archive_path, files): (String, Vec<String>)| {
-      let file = File::create(&archive_path).map_err(|e| LuaError::external(e))?;
-      let mut zip = ZipWriter::new(file);
-      let options: FileOptions<ExtendedFileOptions> =
-        FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-
-      for path in files {
-        let mut f = File::open(&path).map_err(|e| LuaError::external(e))?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).map_err(|e| LuaError::external(e))?;
-        zip
-          .start_file(path.clone(), options.clone())
-          .map_err(|e| LuaError::external(e))?;
-        zip.write_all(&buf).map_err(|e| LuaError::external(e))?;
-      }
-
-      zip.finish().map_err(LuaError::external)?;
-      Ok(())
-    })?,
-  )?;
-
-  zip_mod.set(
-    "extract",
-    lua.create_function(|_, (archive_path, dest_dir): (String, String)| {
-      let file = File::open(&archive_path).map_err(|e| LuaError::external(e))?;
-      let mut archive = zip::ZipArchive::new(file).map_err(|e| LuaError::external(e))?;
-
-      std::fs::create_dir_all(&dest_dir).ok();
-
-      for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| LuaError::external(e))?;
-        let out_path = std::path::Path::new(&dest_dir).join(file.name());
-
-        if file.name().ends_with('/') {
-          std::fs::create_dir_all(&out_path).ok();
-        } else {
-          if let Some(p) = out_path.parent() {
-            std::fs::create_dir_all(p).ok();
-          }
-          let mut outfile = File::create(&out_path).map_err(|e| LuaError::external(e))?;
-          std::io::copy(&mut file, &mut outfile).map_err(|e| LuaError::external(e))?;
-        }
-      }
-
-      Ok(())
-    })?,
-  )?;
-
-  use flate2::read::GzDecoder;
-  use flate2::write::GzEncoder;
-  let tar_mod = lua.create_table()?;
-
-  tar_mod.set(
-    "create",
-    lua.create_function(|_, (archive_path, files): (String, Vec<String>)| {
-      let tar_gz = File::create(&archive_path).map_err(|e| LuaError::external(e))?;
-      let enc = GzEncoder::new(tar_gz, flate2::Compression::default());
-      let mut tar = tar::Builder::new(enc);
-
-      for path in files {
-        tar.append_path(&path).map_err(|e| LuaError::external(e))?;
-      }
-
-      tar.into_inner().map_err(LuaError::external)?;
-      Ok(())
-    })?,
-  )?;
-
-  tar_mod.set(
-    "extract",
-    lua.create_function(|_, (archive_path, dest_dir): (String, String)| {
-      let tar_gz = std::fs::File::open(&archive_path).map_err(|e| LuaError::external(e))?;
-      let dec = GzDecoder::new(tar_gz);
-      let mut archive = tar::Archive::new(dec);
-      archive
-        .unpack(std::path::Path::new(&dest_dir))
-        .map_err(|e| LuaError::external(e))?;
-      Ok(())
-    })?,
-  )?;
-  std.set("tar", tar_mod)?;
-  std.set("zip", zip_mod)?;
-
-  let net_mod = lua.create_table()?;
-  let http_mod = lua.create_table()?;
-
-  let client = Client::builder()
-    .user_agent("Lulu/1.0")
-    .build()
-    .map_err(LuaError::external)?;
-  let client_ref = lua.create_any_userdata(client)?;
-
-  http_mod.set(
-    "request",
-    lua.create_async_function(
-      |lua,
-       (url, method, body, headers): (
-        String,
-        Option<String>,
-        Option<String>,
-        Option<HashMap<String, String>>,
-      )| async move {
-        let client = lua.globals().get::<mlua::AnyUserData>("__reqwest_client")?;
-        let client = client.borrow::<Client>()?;
-        let mut req = client.request(
-          Method::from_bytes(method.unwrap_or("GET".to_string()).as_bytes())
-            .map_err(LuaError::external)?,
-          &url,
-        );
-        if let Some(hmap) = headers {
-          let mut hdrs = HeaderMap::new();
-          for (k, v) in hmap {
-            hdrs.insert(
-              HeaderName::from_bytes(k.as_bytes()).map_err(mlua::Error::external)?,
-              HeaderValue::from_str(&v).map_err(mlua::Error::external)?,
-            );
-          }
-          req = req.headers(hdrs);
-        }
-        if let Some(b) = body {
-          req = req.body(b);
-        }
-        let resp = req.send().await.map_err(LuaError::external)?;
-        let status = resp.status().as_u16();
-        let bytes = resp.bytes().await.map_err(LuaError::external)?;
-
-        let res = lua.create_table_from([(
-          "body",
-          LuluByteArray {
-            bytes: bytes.to_vec(),
-          },
-        )])?;
-        res.set("status", status)?;
-
-        let bytes_clone = bytes.clone();
-        res.set(
-          "text",
-          lua.create_function(move |_, ()| {
-            let text = String::from_utf8(bytes_clone.to_vec())
-              .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
-            Ok(text)
-          })?,
-        )?;
-        Ok(res)
-      },
-    )?,
-  )?;
-
-  lua.globals().set("__reqwest_client", client_ref)?;
-  net_mod.set("http", http_mod)?;
-  std.set("net", net_mod)?;
-
-  let serde_mod = lua.create_table()?;
-  let json_mod = lua.create_table()?;
-  json_mod.set(
-    "decode",
-    lua.create_function(|_, text: String| {
-      serde_json::from_str::<serde_json::Value>(&text)
-        .map(|v| format!("{:?}", v))
-        .map_err(mlua::Error::external)
-    })?,
-  )?;
-  json_mod.set(
-    "encode",
-    lua.create_function(|_, val: mlua::Table| {
-      serde_json::to_string(&val).map_err(LuaError::external)
-    })?,
-  )?;
-  serde_mod.set("json", json_mod)?;
-  let yaml_mod = lua.create_table()?;
-  yaml_mod.set(
-    "decode",
-    lua.create_function(|_, text: String| {
-      serde_yaml::from_str::<serde_yaml::Value>(&text)
-        .map(|v| format!("{:?}", v))
-        .map_err(mlua::Error::external)
-    })?,
-  )?;
-  yaml_mod.set(
-    "encode",
-    lua.create_function(|_, val: mlua::Table| {
-      serde_yaml::to_string(&val).map_err(LuaError::external)
-    })?,
-  )?;
-  serde_mod.set("yaml", yaml_mod)?;
-  std.set("serde", serde_mod)?;
-
   Ok(())
 }
 
@@ -653,6 +463,44 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
       lulu.exec_mod(&name)
     }
   })?;
+
+  lua.globals().set(
+    "request_env_load",
+    lua.create_function({
+      let lulu_rc = lulu.clone();
+      move |lua, (env, name): (String, Option<String>)| {
+        if let Some(module) = get_std_module(&env) {
+          module.register(lua)?;
+          return Ok(true);
+        }
+        if let Ok(modules) = lua
+          .globals()
+          .get::<mlua::Table>("package")?
+          .get::<HashMap<String, mlua::Value>>("preload")
+        {
+          if let Some(mn) = if let Some(_) = modules.get(&env) {
+            Some(env.clone())
+          } else if let Some(_) = modules.get(&format!("{}/init", env)) {
+            Some(format!("{}/init", env))
+          } else {
+            None
+          } {
+            let lulu = &lulu_rc;
+            let module = lulu.exec_mod(&mn)?;
+
+            if let Some(name) = name {
+              lua.globals().set(name, module)?;
+            } else {
+              lua.globals().set(env, module)?;
+            }
+
+            return Ok(true);
+          }
+        }
+        Ok(false)
+      }
+    })?,
+  )?;
 
   let bytes_from_mods = {
     let lulu_rc = lulu.clone();
@@ -932,7 +780,7 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
         if let Ok(format) = options.get::<String>("format") {
           pm.downloader.format = format;
         }
-        
+
         if let Ok(download_text) = options.get::<String>("download_text") {
           pm.downloader.download_text = download_text;
         }
@@ -943,8 +791,16 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
 
         if let Ok(progress_bar_colors) = options.get::<Vec<u8>>("progressbar_colors") {
           pm.downloader.progress_bar_colors = (
-            (progress_bar_colors[0], progress_bar_colors[1], progress_bar_colors[2]),
-            (progress_bar_colors[3], progress_bar_colors[4], progress_bar_colors[5])
+            (
+              progress_bar_colors[0],
+              progress_bar_colors[1],
+              progress_bar_colors[2],
+            ),
+            (
+              progress_bar_colors[3],
+              progress_bar_colors[4],
+              progress_bar_colors[5],
+            ),
           );
         }
       }
@@ -1026,4 +882,734 @@ pub fn register_consts(lua: &Lua) -> mlua::Result<()> {
   lua.globals().set("LULU_VER", env!("CARGO_PKG_VERSION"))?;
 
   Ok(())
+}
+
+#[derive(Default)]
+pub struct STDModule {
+  pub name: String,
+  pub functions: HashMap<String, Box<dyn Fn(&Lua) -> mlua::Result<mlua::Function> + Send + Sync>>,
+  pub files: Vec<(String, String)>,
+  pub on_register:
+    Option<Box<dyn Fn(&Lua, mlua::Table) -> mlua::Result<mlua::Table> + Send + Sync>>,
+}
+
+impl STDModule {
+  pub fn new(name: impl Into<String>) -> Self {
+    Self {
+      name: name.into(),
+      functions: HashMap::new(),
+      files: Vec::new(),
+      on_register: None,
+    }
+  }
+
+  #[allow(unused)]
+  pub fn add_function<T, R, F>(mut self, name: impl Into<String>, func: F) -> Self
+  where
+    T: mlua::FromLuaMulti + Send + 'static,
+    R: mlua::IntoLuaMulti + Send + 'static,
+    F: Fn(&Lua, T) -> mlua::Result<R> + Clone + Send + Sync + 'static,
+  {
+    let name = name.into();
+    self.functions.insert(
+      name,
+      Box::new(move |lua| Ok(lua.create_function(func.clone())?)),
+    );
+    self
+  }
+
+  #[allow(unused)]
+  pub fn add_file(mut self, path: impl Into<String>, content: impl Into<String>) -> Self {
+    self
+      .files
+      .push((path.into(), crate::compiler::compile(&content.into())));
+    self
+  }
+
+  pub fn on_register<F>(mut self, callback: F) -> Self
+  where
+    F: Fn(&Lua, mlua::Table) -> mlua::Result<mlua::Table> + Send + Sync + 'static,
+  {
+    self.on_register = Some(Box::new(callback));
+    self
+  }
+
+  pub fn register(&self, lua: &Lua) -> mlua::Result<()> {
+    let tbl = lua.create_table()?;
+
+    for (name, make_fn) in &self.functions {
+      tbl.set(name.as_str(), (make_fn)(lua)?)?;
+    }
+
+    if let Some(cb) = &self.on_register {
+      lua.globals().set(self.name.as_str(), (cb)(lua, tbl)?)?;
+    } else {
+      lua.globals().set(self.name.as_str(), tbl)?;
+    }
+
+    for (path, content) in &self.files {
+      lua.load(content).set_name(path).exec()?;
+    }
+
+    Ok(())
+  }
+
+  pub fn into(self) -> Arc<Self> {
+    let name = self.name.to_string();
+    let module = Arc::new(self);
+    STD_MODULES
+      .write()
+      .unwrap()
+      .insert(name.to_string(), module.clone());
+    module
+  }
+}
+
+use axum::{
+  Router,
+  extract::{Request, State},
+  http::StatusCode,
+  response::{IntoResponse, Response},
+  routing::any,
+};
+use futures_util::{SinkExt, StreamExt};
+use std::net::SocketAddr;
+use std::sync::{Arc, RwLock};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::protocol::Message};
+
+lazy_static::lazy_static! {
+  pub static ref STD_MODULES: RwLock<HashMap<String, Arc<STDModule>>> =
+      RwLock::new(HashMap::new());
+}
+
+#[derive(Clone)]
+struct LuluTcpStream {
+  reader: Arc<TokioMutex<ReadHalf<TcpStream>>>,
+  writer: Arc<TokioMutex<WriteHalf<TcpStream>>>,
+}
+
+impl LuluTcpStream {
+  fn new(stream: TcpStream) -> Self {
+    let (reader, writer) = tokio::io::split(stream);
+    Self {
+      reader: Arc::new(TokioMutex::new(reader)),
+      writer: Arc::new(TokioMutex::new(writer)),
+    }
+  }
+}
+
+impl mlua::UserData for LuluTcpStream {
+  fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_async_method("read", |_, this, n: Option<usize>| async move {
+      let mut reader = this.reader.lock().await;
+      let n = n.unwrap_or(1024);
+      let mut buf = vec![0; n];
+      match reader.read(&mut buf).await {
+        Ok(0) => Ok(None), // EOF
+        Ok(bytes_read) => {
+          buf.truncate(bytes_read);
+          Ok(Some(LuluByteArray { bytes: buf }))
+        }
+        Err(e) => Err(mlua::Error::external(e)),
+      }
+    });
+
+    methods.add_async_method("write", |_, this, data: mlua::Value| async move {
+      let mut writer = this.writer.lock().await;
+      let bytes = match data {
+        mlua::Value::String(s) => s.as_bytes().to_vec(),
+        mlua::Value::UserData(ud) => ud.borrow::<LuluByteArray>()?.bytes.clone(),
+        _ => return Err(mlua::Error::external("string or ByteArray")),
+      };
+      writer
+        .write_all(&bytes)
+        .await
+        .map_err(mlua::Error::external)?;
+      Ok(())
+    });
+
+    methods.add_async_method("close", |_, this, ()| async move {
+      let mut writer = this.writer.lock().await;
+      writer.shutdown().await.map_err(mlua::Error::external)?;
+      Ok(())
+    });
+  }
+}
+
+#[derive(Clone)]
+struct LuluTcpListener {
+  listener: Arc<TcpListener>,
+}
+
+impl mlua::UserData for LuluTcpListener {
+  fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_async_method("accept", |_, this, ()| async move {
+      let (socket, _) = this
+        .listener
+        .accept()
+        .await
+        .map_err(mlua::Error::external)?;
+      Ok(LuluTcpStream::new(socket))
+    });
+  }
+}
+
+#[derive(Clone)]
+struct LuluUdpSocket {
+  socket: Arc<UdpSocket>,
+}
+
+impl LuluUdpSocket {
+  fn new(socket: UdpSocket) -> Self {
+    Self {
+      socket: Arc::new(socket),
+    }
+  }
+}
+
+impl mlua::UserData for LuluUdpSocket {
+  fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_async_method(
+      "send_to",
+      |_, this, (addr, data): (String, mlua::Value)| async move {
+        let bytes = match data {
+          mlua::Value::String(s) => s.as_bytes().to_vec(),
+          mlua::Value::UserData(ud) => ud.borrow::<LuluByteArray>()?.bytes.clone(),
+          _ => return Err(mlua::Error::external("string or ByteArray")),
+        };
+        let sent = this
+          .socket
+          .send_to(&bytes, &addr)
+          .await
+          .map_err(mlua::Error::external)?;
+        Ok(sent)
+      },
+    );
+
+    methods.add_async_method("recv_from", |lua, this, n: Option<usize>| async move {
+      let n = n.unwrap_or(65535);
+      let mut buf = vec![0; n];
+      let (len, addr) = this
+        .socket
+        .recv_from(&mut buf)
+        .await
+        .map_err(mlua::Error::external)?;
+      buf.truncate(len);
+      let result = lua.create_table()?;
+      result.set("data", LuluByteArray { bytes: buf })?;
+      result.set("addr", addr.to_string())?;
+      Ok(result)
+    });
+  }
+}
+
+#[derive(Clone)]
+struct LuluWebSocket {
+  stream:
+    Arc<TokioMutex<WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>>,
+}
+
+impl LuluWebSocket {
+  fn new(
+    stream: WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+  ) -> Self {
+    Self {
+      stream: Arc::new(TokioMutex::new(stream)),
+    }
+  }
+}
+
+impl mlua::UserData for LuluWebSocket {
+  fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_async_method("read", |lua, this, ()| async move {
+      let mut stream = this.stream.lock().await;
+      match stream.next().await {
+        Some(Ok(msg)) => {
+          match msg {
+            Message::Text(t) => Ok(mlua::Value::String(lua.create_string(&t)?)),
+            Message::Binary(b) => Ok(mlua::Value::UserData(
+              lua.create_userdata(LuluByteArray { bytes: b.to_vec() })?,
+            )),
+            _ => Ok(mlua::Value::Nil), // Ignore Ping/Pong/Frame/Close
+          }
+        }
+        Some(Err(e)) => Err(mlua::Error::external(e)),
+        _ => Ok(mlua::Value::Nil), // Stream closed
+      }
+    });
+
+    methods.add_async_method("write", |_, this, data: mlua::Value| async move {
+      let mut stream = this.stream.lock().await;
+      let msg = match data {
+        mlua::Value::String(s) => Message::Text(s.to_str()?.to_string().into()),
+        mlua::Value::UserData(ud) => {
+          Message::Binary(ud.borrow::<LuluByteArray>()?.bytes.clone().into())
+        }
+        _ => return Err(mlua::Error::external("string or ByteArray")),
+      };
+      stream.send(msg).await.map_err(mlua::Error::external)?;
+      Ok(())
+    });
+
+    methods.add_async_method("close", |_, this, ()| async move {
+      let mut stream = this.stream.lock().await;
+      stream.close(None).await.map_err(mlua::Error::external)?;
+      Ok(())
+    });
+  }
+}
+
+struct ServerRequest {
+  req: Request,
+  resp_tx: oneshot::Sender<Response>,
+}
+
+async fn axum_handler(State(req_tx): State<mpsc::Sender<ServerRequest>>, req: Request) -> Response {
+  let (resp_tx, resp_rx) = oneshot::channel();
+  let server_req = ServerRequest { req, resp_tx };
+
+  if req_tx.send(server_req).await.is_err() {
+    return (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      "Request handler has disconnected",
+    )
+      .into_response();
+  }
+
+  match resp_rx.await {
+    Ok(resp) => resp,
+    Err(_) => (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      "Request handler failed to respond",
+    )
+      .into_response(),
+  }
+}
+
+pub fn create_std_module(name: &str) -> STDModule {
+  STDModule::new(name)
+}
+
+pub fn get_std_module(name: &str) -> Option<Arc<STDModule>> {
+  STD_MODULES.read().unwrap().get(name).cloned()
+}
+
+pub fn init_std_modules() {
+  create_std_module("archive")
+    .on_register(|lua, archive_mod| {
+      let zip_mod = lua.create_table()?;
+      zip_mod.set(
+        "create",
+        lua.create_function(|_, (archive_path, files): (String, Vec<String>)| {
+          let file = File::create(&archive_path).map_err(|e| LuaError::external(e))?;
+          let mut zip = ZipWriter::new(file);
+          let options: FileOptions<ExtendedFileOptions> =
+            FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+          for path in files {
+            let mut f = File::open(&path).map_err(|e| LuaError::external(e))?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf).map_err(|e| LuaError::external(e))?;
+            zip
+              .start_file(path.clone(), options.clone())
+              .map_err(|e| LuaError::external(e))?;
+            zip.write_all(&buf).map_err(|e| LuaError::external(e))?;
+          }
+
+          zip.finish().map_err(LuaError::external)?;
+          Ok(())
+        })?,
+      )?;
+
+      zip_mod.set(
+        "extract",
+        lua.create_function(|_, (archive_path, dest_dir): (String, String)| {
+          let file = File::open(&archive_path).map_err(|e| LuaError::external(e))?;
+          let mut archive = zip::ZipArchive::new(file).map_err(|e| LuaError::external(e))?;
+
+          std::fs::create_dir_all(&dest_dir).ok();
+
+          for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| LuaError::external(e))?;
+            let out_path = std::path::Path::new(&dest_dir).join(file.name());
+
+            if file.name().ends_with('/') {
+              std::fs::create_dir_all(&out_path).ok();
+            } else {
+              if let Some(p) = out_path.parent() {
+                std::fs::create_dir_all(p).ok();
+              }
+              let mut outfile = File::create(&out_path).map_err(|e| LuaError::external(e))?;
+              std::io::copy(&mut file, &mut outfile).map_err(|e| LuaError::external(e))?;
+            }
+          }
+
+          Ok(())
+        })?,
+      )?;
+
+      use flate2::read::GzDecoder;
+      use flate2::write::GzEncoder;
+      let tar_mod = lua.create_table()?;
+
+      tar_mod.set(
+        "create",
+        lua.create_function(|_, (archive_path, files): (String, Vec<String>)| {
+          let tar_gz = File::create(&archive_path).map_err(|e| LuaError::external(e))?;
+          let enc = GzEncoder::new(tar_gz, flate2::Compression::default());
+          let mut tar = tar::Builder::new(enc);
+
+          for path in files {
+            tar.append_path(&path).map_err(|e| LuaError::external(e))?;
+          }
+
+          tar.into_inner().map_err(LuaError::external)?;
+          Ok(())
+        })?,
+      )?;
+
+      tar_mod.set(
+        "extract",
+        lua.create_function(|_, (archive_path, dest_dir): (String, String)| {
+          let tar_gz = std::fs::File::open(&archive_path).map_err(|e| LuaError::external(e))?;
+          let dec = GzDecoder::new(tar_gz);
+          let mut archive = tar::Archive::new(dec);
+          archive
+            .unpack(std::path::Path::new(&dest_dir))
+            .map_err(|e| LuaError::external(e))?;
+          Ok(())
+        })?,
+      )?;
+
+      archive_mod.set("tar", tar_mod)?;
+      archive_mod.set("zip", zip_mod)?;
+      Ok(archive_mod)
+    })
+    .into();
+
+  create_std_module("serde")
+    .on_register(|lua, serde_mod| {
+      fn serde_value_to_lua(
+        lua: &mlua::Lua,
+        value: serde_json::Value,
+      ) -> mlua::Result<mlua::Value> {
+        use serde_json::Value::*;
+        Ok(match value {
+          Null => mlua::Value::Nil,
+          Bool(b) => mlua::Value::Boolean(b),
+          Number(n) => {
+            if let Some(i) = n.as_i64() {
+              mlua::Value::Integer(i)
+            } else if let Some(f) = n.as_f64() {
+              mlua::Value::Number(f)
+            } else {
+              mlua::Value::Nil
+            }
+          }
+          String(s) => mlua::Value::String(lua.create_string(&s)?),
+          Array(arr) => {
+            let tbl = lua.create_table()?;
+            for (i, v) in arr.into_iter().enumerate() {
+              tbl.set(i + 1, serde_value_to_lua(lua, v)?)?;
+            }
+            mlua::Value::Table(tbl)
+          }
+          Object(map) => {
+            let tbl = lua.create_table()?;
+            for (k, v) in map.into_iter() {
+              tbl.set(k, serde_value_to_lua(lua, v)?)?;
+            }
+            mlua::Value::Table(tbl)
+          }
+        })
+      }
+      fn serde_into_json<V>(
+        lua: &mlua::Lua,
+        value: V,
+      ) -> mlua::Result<mlua::Value>
+      where
+        V: serde::Serialize,
+      {
+        // Convert serde::Serialize -> serde_json::Value first
+        let json_value = serde_json::to_value(value).map_err(mlua::Error::external)?;
+        serde_value_to_lua(lua, json_value)
+      }
+
+      let json_mod = lua.create_table()?;
+      json_mod.set(
+        "decode",
+        lua.create_function(|lua, text: String| {
+          serde_value_to_lua(
+            lua,
+            serde_json::from_str::<serde_json::Value>(&text).map_err(mlua::Error::external)?,
+          )
+        })?,
+      )?;
+      json_mod.set(
+        "encode",
+        lua.create_function(|_, val: mlua::Table| {
+          serde_json::to_string(&val).map_err(LuaError::external)
+        })?,
+      )?;
+      serde_mod.set("json", json_mod)?;
+      let yaml_mod = lua.create_table()?;
+      yaml_mod.set(
+        "decode",
+        lua.create_function(|lua, text: String| {
+          serde_into_json(
+            lua,
+            serde_yaml::from_str::<serde_yaml::Value>(&text).map_err(mlua::Error::external)?,
+          )
+        })?,
+      )?;
+      yaml_mod.set(
+        "encode",
+        lua.create_function(|_, val: mlua::Table| {
+          serde_yaml::to_string(&val).map_err(LuaError::external)
+        })?,
+      )?;
+      serde_mod.set("yaml", yaml_mod)?;
+
+      Ok(serde_mod)
+    })
+    .into();
+
+  create_std_module("net")
+    .on_register(|lua, net_mod| {
+      // HTTP client
+      let http_mod = lua.create_table()?;
+      let client = Client::builder()
+        .user_agent("Lulu/1.0")
+        .build()
+        .map_err(LuaError::external)?;
+      lua
+        .globals()
+        .set("__reqwest_client", lua.create_any_userdata(client)?)?;
+
+      http_mod.set(
+        "request",
+        lua.create_async_function(|lua, req_table: mlua::Table| async move {
+          let client = lua.globals().get::<mlua::AnyUserData>("__reqwest_client")?;
+          let client = client.borrow::<Client>()?;
+
+          let url: String = req_table.get("url")?;
+          let method: Option<String> = req_table.get("method").ok();
+          let body: Option<String> = req_table.get("body").ok();
+          let headers: Option<HashMap<String, String>> = req_table.get("headers").ok();
+
+          let mut req = client.request(
+            Method::from_bytes(method.unwrap_or_else(|| "GET".to_string()).as_bytes())
+              .map_err(LuaError::external)?,
+            &url,
+          );
+
+          if let Some(hmap) = headers {
+            let mut hdrs = HeaderMap::new();
+            for (k, v) in hmap {
+              hdrs.insert(
+                HeaderName::from_bytes(k.as_bytes()).map_err(mlua::Error::external)?,
+                HeaderValue::from_str(&v).map_err(mlua::Error::external)?,
+              );
+            }
+            req = req.headers(hdrs);
+          }
+
+          if let Some(b) = body {
+            req = req.body(b);
+          }
+
+          let resp = req.send().await.map_err(LuaError::external)?;
+          let status = resp.status().as_u16();
+          let res_headers: HashMap<String, String> = resp
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+            .collect();
+          let bytes = resp.bytes().await.map_err(LuaError::external)?;
+
+          // Build Lua result
+          let res = lua.create_table()?;
+          res.set(
+            "body",
+            LuluByteArray {
+              bytes: bytes.to_vec(),
+            },
+          )?;
+          res.set("status", status)?;
+          res.set("headers", res_headers)?;
+
+          Ok(res)
+        })?,
+      )?;
+
+      http_mod.set(
+        "serve",
+        lua.create_async_function(
+          |lua, (addr, handler): (String, mlua::Function)| async move {
+            let (req_tx, mut req_rx) = mpsc::channel::<ServerRequest>(32);
+            let handler_key = lua.create_registry_value(handler)?;
+            let lua = lua.clone();
+
+            let app = Router::new()
+              .fallback(any(axum_handler))
+              .with_state(req_tx.clone());
+
+            let socket_addr: SocketAddr = addr.parse().map_err(LuaError::external)?;
+            let listener = tokio::net::TcpListener::bind(socket_addr)
+              .await
+              .map_err(LuaError::external)?;
+
+            tokio::spawn(async move {
+              if let Err(e) = axum::serve(listener, app).await {
+                eprintln!("Server error: {}", e);
+              }
+            });
+
+            tokio::spawn(async move {
+              while let Some(server_req) = req_rx.recv().await {
+                let handler = lua.registry_value::<mlua::Function>(&handler_key)?;
+                let (parts, body) = server_req.req.into_parts();
+                let body_bytes = axum::body::to_bytes(body, 1024 * 1024)
+                  .await
+                  .map_err(LuaError::external)?;
+
+                let req_table = lua.create_table()?;
+                req_table.set("method", parts.method.to_string())?;
+                let uri = parts.uri.to_string();
+                let host = parts
+                  .headers
+                  .get("host")
+                  .and_then(|v| v.to_str().ok())
+                  .unwrap_or("");
+                req_table.set("url", format!("{host}{uri}"))?;
+                req_table.set("uri", uri)?;
+
+                let headers_table = lua.create_table()?;
+                for (k, v) in parts.headers.iter() {
+                  headers_table.set(k.to_string(), v.to_str().unwrap_or(""))?;
+                }
+                req_table.set("headers", headers_table)?;
+                req_table.set(
+                  "body",
+                  LuluByteArray {
+                    bytes: body_bytes.to_vec(),
+                  },
+                )?;
+
+                let resp_table: mlua::Table = handler.call_async(req_table).await?;
+                let status: u16 = resp_table.get("status").unwrap_or(200);
+                let body: mlua::Value = resp_table.get("body").unwrap_or(mlua::Value::Nil);
+                let headers: HashMap<String, String> =
+                  resp_table.get("headers").unwrap_or_default();
+
+                let mut header_map = HeaderMap::new();
+                for (k, v) in headers {
+                  header_map.insert(
+                    HeaderName::from_bytes(k.as_bytes()).map_err(LuaError::external)?,
+                    HeaderValue::from_str(&v).map_err(LuaError::external)?,
+                  );
+                }
+
+                let body_bytes = match body {
+                  mlua::Value::String(s) => s.as_bytes().to_vec(),
+                  mlua::Value::UserData(ud) => ud.borrow::<LuluByteArray>()?.bytes.clone(),
+                  _ => Vec::new(),
+                };
+
+                let resp = Response::builder()
+                  .status(StatusCode::from_u16(status).map_err(LuaError::external)?)
+                  .header("x-powered-by", "Lulu")
+                  .body(axum::body::Body::from(body_bytes))
+                  .map_err(LuaError::external)?;
+
+                let _ = server_req.resp_tx.send(resp);
+              }
+              Ok::<(), LuaError>(())
+            });
+
+            Ok(())
+          },
+        )?,
+      )?;
+
+      net_mod.set("http", http_mod)?;
+
+      // TCP
+      let tcp_mod = lua.create_table()?;
+      tcp_mod.set(
+        "connect",
+        lua.create_async_function(|_, addr: String| async move {
+          let stream = TcpStream::connect(addr)
+            .await
+            .map_err(mlua::Error::external)?;
+          Ok(LuluTcpStream::new(stream))
+        })?,
+      )?;
+      tcp_mod.set(
+        "listen",
+        lua.create_async_function(|_, addr: String| async move {
+          let listener = TcpListener::bind(addr)
+            .await
+            .map_err(mlua::Error::external)?;
+          Ok(LuluTcpListener {
+            listener: Arc::new(listener),
+          })
+        })?,
+      )?;
+      net_mod.set("tcp", tcp_mod)?;
+
+      // UDP
+      let udp_mod = lua.create_table()?;
+      udp_mod.set(
+        "bind",
+        lua.create_async_function(|_, addr: String| async move {
+          let socket = UdpSocket::bind(addr).await.map_err(mlua::Error::external)?;
+          Ok(LuluUdpSocket::new(socket))
+        })?,
+      )?;
+      net_mod.set("udp", udp_mod)?;
+
+      // WebSocket
+      let ws_mod = lua.create_table()?;
+      ws_mod.set(
+        "connect",
+        lua.create_async_function(|_, url: String| async move {
+          let (ws_stream, _) = connect_async(url).await.map_err(mlua::Error::external)?;
+          Ok(LuluWebSocket::new(ws_stream))
+        })?,
+      )?;
+      net_mod.set("websocket", ws_mod)?;
+
+      Ok(net_mod)
+    })
+    .add_file(
+      "keepalive.lua",
+      r#"
+      function net.keepalive()
+        async(function()
+          while true do
+            coroutine.yield()
+          end
+        end)
+      end
+    "#,
+    )
+    .add_file(
+      "net.lua",
+      std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/net.lua").unwrap(),
+    )
+    .add_file(
+      "http.lua",
+      std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/http.lua").unwrap(),
+    )
+    .add_file(
+      "http_serve.lua",
+      std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/http_serve.lua")
+        .unwrap(),
+    )
+    .into();
 }

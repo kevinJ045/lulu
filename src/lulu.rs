@@ -267,7 +267,13 @@ impl Lulu {
       .lua
       .load(chunk! {
         local args = { ... }
-        args[1](getfenv(1))
+        if type(args[1]) == "function" then
+          args[1](getfenv(1))
+        elseif type(args[1]) == "table" then
+          for k, v in pairs(args[1]) do
+            v(getfenv(1))
+          end
+        end
       })
       .set_environment(env.clone())
       .into_function()?;
