@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::conf::LuluConf;
+use crate::{conf::LuluConf, ops::STD_MODULES};
 
 #[derive(Debug, Clone)]
 pub struct MacroDefinition {
@@ -200,6 +200,21 @@ impl MacroRegistry {
         body: tokenize("include_bytes! { $expr }:to_string()"),
       },
     );
+
+    if let Ok(modules) = STD_MODULES.read() {
+      for (_, module) in modules.iter() {
+        for (name, params, body) in module.macros.clone() {
+          macros.insert(
+            name.clone(),
+            MacroDefinition {
+              name: name,
+              params: params,
+              body: tokenize(&body),
+            },
+          );
+        }
+      }
+    }
 
     MacroRegistry { macros }
   }
@@ -1767,7 +1782,7 @@ impl Compiler {
               }
               decorator_tokens.extend_from_slice(&decl_tokens[start_paren..i]);
             }
-            class_decorators.push(decorator_tokens);
+            class_decorators.insert(0, decorator_tokens);
           }
           while i < decl_tokens.len() && matches!(decl_tokens.get(i), Some(Token::Whitespace(_, _)))
           {
@@ -3267,8 +3282,8 @@ end
           if j < tokens.len() && matches!(&tokens[j], Token::Symbol(s, _) if s == ":") {
             if j < tokens.len() && matches!(&tokens[j + 1], Token::Identifier(i, _) if i != "end") {
               let parent_name = get_token_string(&tokens[j + 1]).unwrap();
+              parent = name.clone();
               name = format!("{}:{}", name, parent_name);
-              parent = parent_name.clone();
               j += 2;
             }
           }
@@ -3347,6 +3362,13 @@ end
                   args_str.push_str(&vararg);
                 }
 
+                if !parent.is_empty() && !name.is_empty() && decorators.len() > 0 {
+                  if !args_str.is_empty() {
+                    args_str.insert_str(0, ",");
+                  }
+                  args_str.insert_str(0, "self");
+                }
+
                 let mut prefix = String::new();
 
                 if decorators.len() > 0 {
@@ -3356,6 +3378,10 @@ end
                     match tokens[k] {
                       Token::Identifier(ref id, _)
                         if id == "function" || id == "do" || id == "if" =>
+                      {
+                        block_depth += 1
+                      }
+                      Token::Symbol(ref sym, _) if sym == "=>" =>
                       {
                         block_depth += 1
                       }
@@ -3399,7 +3425,7 @@ end
                   hooks_int.insert(k, hook_close);
 
                   if !name.is_empty() {
-                    prefix = format!("{} = {}", name, prefix);
+                    prefix = format!("{} = {}", name.replace(':', "."), prefix);
                     name = String::new();
                   }
                 }
@@ -3414,8 +3440,8 @@ end
                       deco_str.push_str(&format!("({})", decor_args_str));
                     }
                     deco_str.push_str(&format!(
-                      "(empty_class(), {}, {:?})",
-                      param_name, param_name
+                      "({}, {}, {:?})",
+                      if parent.is_empty() { "empty_class()" } else { "self" }, param_name, param_name
                     ));
                   }
                 }

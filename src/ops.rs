@@ -1,7 +1,7 @@
 use crate::lulu::{Lulu, LuluModSource};
 use crate::package_manager::PackageManager;
-use mlua::Lua;
 use mlua::prelude::LuaError;
+use mlua::{Lua, LuaSerdeExt};
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use regex::Regex;
@@ -478,6 +478,11 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
           }
           module.register(lua)?;
           imports.push(name);
+          if !module.deps.is_empty() {
+            let tbl = lua.create_table()?;
+            tbl.set("__include", module.deps.clone())?;
+            return Ok(mlua::Value::Table(tbl));
+          }
           return Ok(mlua::Value::Boolean(true));
         }
         if let Ok(modules) = lua
@@ -872,8 +877,10 @@ pub fn register_consts(lua: &Lua) -> mlua::Result<()> {
 #[derive(Default)]
 pub struct STDModule {
   pub name: String,
+  pub deps: Vec<String>,
   pub functions: HashMap<String, Box<dyn Fn(&Lua) -> mlua::Result<mlua::Function> + Send + Sync>>,
   pub files: Vec<(String, String)>,
+  pub macros: Vec<(String, Vec<String>, String)>,
   pub on_register:
     Option<Box<dyn Fn(&Lua, mlua::Table) -> mlua::Result<mlua::Table> + Send + Sync>>,
 }
@@ -884,6 +891,8 @@ impl STDModule {
       name: name.into(),
       functions: HashMap::new(),
       files: Vec::new(),
+      macros: Vec::new(),
+      deps: Vec::new(),
       on_register: None,
     }
   }
@@ -908,6 +917,23 @@ impl STDModule {
     self
       .files
       .push((path.into(), crate::compiler::compile(&content.into())));
+    self
+  }
+
+  #[allow(unused)]
+  pub fn add_macro(
+    mut self,
+    name: impl Into<String>,
+    args: impl Into<Vec<String>>,
+    content: impl Into<String>,
+  ) -> Self {
+    self.macros.push((name.into(), args.into(), content.into()));
+    self
+  }
+
+  #[allow(unused)]
+  pub fn depend_on(mut self, name: String) -> Self {
+    self.deps.push(name);
     self
   }
 
@@ -1159,6 +1185,405 @@ pub struct LuluThreadHandle {
 
 impl mlua::UserData for LuluThreadHandle {}
 
+#[derive(Clone)]
+pub struct LuluSledDB {
+  pub db: sled::Db,
+}
+
+#[derive(Clone)]
+pub struct LuluSledDBMulti {
+  pub db: sled::Db,
+  pub table_name: String,
+  pub indexed_fields: Vec<String>,
+}
+
+impl mlua::UserData for LuluSledDB {
+  fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_method("set", |_, this, (key, value): (String, mlua::Value)| {
+      let bytes = serde_json::to_vec(&value).map_err(|e| mlua::Error::external(e))?;
+      this.db.insert(key, bytes).map_err(mlua::Error::external)?;
+      this.db.flush().map_err(mlua::Error::external)?;
+      Ok(())
+    });
+
+    methods.add_method("get", |lua, this, key: String| {
+      if let Some(bytes) = this.db.get(key).map_err(mlua::Error::external)? {
+        let data: serde_json::Value =
+          serde_json::from_slice(&bytes).map_err(mlua::Error::external)?;
+        let lua_val = lua.to_value(&data)?;
+        Ok(lua_val)
+      } else {
+        Ok(mlua::Value::Nil)
+      }
+    });
+
+    methods.add_method("remove", |_, this, key: String| {
+      this.db.remove(key).map_err(mlua::Error::external)?;
+      this.db.flush().map_err(mlua::Error::external)?;
+      Ok(())
+    });
+
+    methods.add_method("contains", |_, this, key: String| {
+      Ok(this.db.contains_key(key).map_err(mlua::Error::external)?)
+    });
+
+    methods.add_method(
+      "table",
+      |_, this, (table_name, indexed_fields): (String, Vec<String>)| {
+        Ok(LuluSledDBMulti {
+          db: this.db.clone(),
+          table_name,
+          indexed_fields,
+        })
+      },
+    );
+
+    methods.add_method("id", |_, this, ()| {
+      Ok(this.db.generate_id().map_err(mlua::Error::external)?)
+    });
+  }
+}
+
+fn json_gt(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+  match (a, b) {
+    (serde_json::Value::Number(an), serde_json::Value::Number(bn)) => an.as_f64() > bn.as_f64(),
+    (serde_json::Value::String(as_), serde_json::Value::String(bs)) => as_ > bs,
+    _ => false, // other types not comparable
+  }
+}
+
+fn json_lt(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+  match (a, b) {
+    (serde_json::Value::Number(an), serde_json::Value::Number(bn)) => an.as_f64() < bn.as_f64(),
+    (serde_json::Value::String(as_), serde_json::Value::String(bs)) => as_ < bs,
+    _ => false,
+  }
+}
+
+impl mlua::UserData for LuluSledDBMulti {
+  fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_method("insert", |_, this, value: mlua::Value| {
+      let id = this.db.generate_id().map_err(mlua::Error::external)?;
+      let key = format!("{}:{:020}", this.table_name, id);
+      let bytes = serde_json::to_vec(&value).map_err(mlua::Error::external)?;
+      this.db.insert(&key, bytes).map_err(mlua::Error::external)?;
+
+      let mut json_val: serde_json::Value =
+        serde_json::from_slice(&serde_json::to_vec(&value).map_err(mlua::Error::external)?)
+          .map_err(mlua::Error::external)?;
+
+      json_val["id"] = serde_json::Value::String(key.clone());
+      let bytes = serde_json::to_vec(&json_val).map_err(mlua::Error::external)?;
+      this.db.insert(&key, bytes).map_err(mlua::Error::external)?;
+
+      for field in &this.indexed_fields {
+        if let Some(field_value) = json_val.get(field) {
+          let index_key = format!("{}:idx:{}:{}", this.table_name, field, field_value);
+          let mut ids: Vec<String> = if let Some(bytes) = this.db.get(&index_key).unwrap() {
+            serde_json::from_slice(&bytes).unwrap_or_default()
+          } else {
+            Vec::new()
+          };
+          ids.push(key.clone());
+          this
+            .db
+            .insert(&index_key, serde_json::to_vec(&ids).unwrap())
+            .unwrap();
+        }
+      }
+
+      this.db.flush().map_err(mlua::Error::external)?;
+      Ok(key)
+    });
+
+    methods.add_method(
+      "find",
+      |lua,
+       this,
+       (field, value, limit, offset): (String, mlua::Value, Option<usize>, Option<usize>)| {
+        let value: serde_json::Value = lua.from_value(value)?;
+        let prefix = format!("{}:idx:{}:", this.table_name, field);
+        let mut results = Vec::new();
+        let mut skipped = 0;
+        let limit = limit.unwrap_or(usize::MAX);
+
+        for item in this.db.scan_prefix(prefix.as_bytes()) {
+          let (key, bytes) = item.map_err(mlua::Error::external)?;
+          let key_str = String::from_utf8_lossy(&key);
+          if !key_str.ends_with(&value.to_string()) {
+            continue;
+          }
+
+          let ids: Vec<String> = serde_json::from_slice(&bytes).map_err(mlua::Error::external)?;
+          for id in ids {
+            if let Some(entry_bytes) = this.db.get(&id).map_err(mlua::Error::external)? {
+              if skipped < offset.unwrap_or(0) {
+                skipped += 1;
+                continue;
+              }
+              if results.len() >= limit {
+                break;
+              }
+              let data: serde_json::Value =
+                serde_json::from_slice(&entry_bytes).map_err(mlua::Error::external)?;
+              results.push(lua.to_value(&data)?);
+            }
+          }
+        }
+
+        Ok(mlua::Value::Table(lua.create_sequence_from(results)?))
+      },
+    );
+
+    methods.add_method("index", |lua, this, id: String| {
+      
+      let key = if id.contains(':') {
+        id
+      } else {
+        format!("{}:{}", this.table_name, id)
+      };
+
+      if let Some(bytes) = this.db.get(&key).map_err(mlua::Error::external)? {
+        let data: serde_json::Value =
+          serde_json::from_slice(&bytes).map_err(mlua::Error::external)?;
+        Ok(lua.to_value(&data)?)
+      } else {
+        Ok(mlua::Value::Nil)
+      }
+    });
+
+    methods.add_method(
+      "lt",
+      |lua, this, (field, max_value, limit, offset): (String, mlua::Value, Option<usize>, Option<usize>)| {
+        let max_value: serde_json::Value = lua.from_value(max_value)?;
+        let prefix = format!("{}:", this.table_name);
+        let mut results = Vec::new();
+        let mut skipped = 0;
+        let limit = limit.unwrap_or(usize::MAX);
+
+        for item in this.db.scan_prefix(prefix.as_bytes()) {
+          let (key, value_bytes) = item.map_err(mlua::Error::external)?;
+          let key_str = String::from_utf8_lossy(&key);
+          if key_str.contains(":idx:") {
+            continue;
+          }
+          let data: serde_json::Value = serde_json::from_slice(&value_bytes).map_err(mlua::Error::external)?;
+          if let Some(field_val) = data.get(&field) {
+            if json_lt(field_val, &max_value) {
+              if skipped < offset.unwrap_or(0) {
+                skipped += 1;
+                continue;
+              }
+              if results.len() >= limit {
+                break;
+              }
+              results.push(lua.to_value(&data)?);
+            }
+          }
+        }
+
+        Ok(mlua::Value::Table(lua.create_sequence_from(results)?))
+      },
+    );
+
+    methods.add_method(
+      "gt",
+      |lua, this, (field, min_value, limit, offset): (String, mlua::Value, Option<usize>, Option<usize>)| {
+        let min_value: serde_json::Value = lua.from_value(min_value)?;
+        let prefix = format!("{}:", this.table_name);
+        let mut results = Vec::new();
+        let mut skipped = 0;
+        let limit = limit.unwrap_or(usize::MAX);
+
+        for item in this.db.scan_prefix(prefix.as_bytes()) {
+          let (key, value_bytes) = item.map_err(mlua::Error::external)?;
+          let key_str = String::from_utf8_lossy(&key);
+          if key_str.contains(":idx:") {
+            continue;
+          }
+          let data: serde_json::Value = serde_json::from_slice(&value_bytes).map_err(mlua::Error::external)?;
+          if let Some(field_val) = data.get(&field) {
+            if json_gt(field_val, &min_value) {
+              if skipped < offset.unwrap_or(0) {
+                skipped += 1;
+                continue;
+              }
+              if results.len() >= limit {
+                break;
+              }
+              results.push(lua.to_value(&data)?);
+            }
+          }
+        }
+
+        Ok(mlua::Value::Table(lua.create_sequence_from(results)?))
+      },
+    );
+
+    methods.add_method(
+      "all",
+      |lua, this, (limit, offset): (Option<usize>, Option<usize>)| {
+        let prefix = format!("{}:", this.table_name);
+        let mut results = Vec::new();
+        let mut skipped = 0;
+        let limit = limit.unwrap_or(usize::MAX);
+
+        for item in this.db.scan_prefix(prefix.as_bytes()) {
+          let (key, value) = item.map_err(mlua::Error::external)?;
+          let key_str = String::from_utf8_lossy(&key);
+          if key_str.contains(":idx:") {
+            continue;
+          }
+
+          if skipped < offset.unwrap_or(0) {
+            skipped += 1;
+            continue;
+          }
+
+          if results.len() >= limit {
+            break;
+          }
+
+          let data: serde_json::Value =
+            serde_json::from_slice(&value).map_err(mlua::Error::external)?;
+          results.push(lua.to_value(&data)?);
+        }
+
+        Ok(mlua::Value::Table(lua.create_sequence_from(results)?))
+      },
+    );
+
+    methods.add_method(
+      "matches",
+      |lua,
+       this,
+       (field, pattern, limit, offset): (String, String, Option<usize>, Option<usize>)| {
+        let regex = Regex::new(&pattern).map_err(mlua::Error::external)?;
+        let prefix = format!("{}:", this.table_name);
+        let mut results = Vec::new();
+        let mut skipped = 0;
+        let limit = limit.unwrap_or(usize::MAX);
+
+        for item in this.db.scan_prefix(prefix.as_bytes()) {
+          let (key, value) = item.map_err(mlua::Error::external)?;
+          let key_str = String::from_utf8_lossy(&key);
+          if key_str.contains(":idx:") {
+            continue;
+          }
+
+          let data: serde_json::Value =
+            serde_json::from_slice(&value).map_err(mlua::Error::external)?;
+
+          if let Some(field_val) = data.get(&field) {
+            let val = field_val.to_string();
+            let s = field_val.as_str().unwrap_or(&val);
+            if regex.is_match(s) {
+              if skipped < offset.unwrap_or(0) {
+                skipped += 1;
+                continue;
+              }
+              if results.len() >= limit {
+                break;
+              }
+              results.push(lua.to_value(&data)?);
+            }
+          }
+        }
+
+        Ok(mlua::Value::Table(lua.create_sequence_from(results)?))
+      },
+    );
+
+    methods.add_method("length", |_, this, _: ()| {
+      let prefix = format!("{}:", this.table_name);
+      let mut count = 0;
+      for item in this.db.scan_prefix(prefix.as_bytes()) {
+        let (key, _) = item.map_err(mlua::Error::external)?;
+        let key_str = String::from_utf8_lossy(&key);
+        if !key_str.contains(":idx:") {
+          count += 1;
+        }
+      }
+      Ok(count)
+    });
+
+    methods.add_method(
+      "update",
+      |_, this, (key, new_value): (String, mlua::Value)| {
+        let old_bytes = this.db.get(&key).map_err(mlua::Error::external)?;
+        if old_bytes.is_none() {
+          return Err(mlua::Error::external("key not found"));
+        }
+        let old_json: serde_json::Value = serde_json::from_slice(&old_bytes.unwrap()).unwrap();
+        let new_json: serde_json::Value =
+          serde_json::from_slice(&serde_json::to_vec(&new_value).map_err(mlua::Error::external)?)
+            .unwrap();
+
+        for field in &this.indexed_fields {
+          let old_val = old_json.get(field);
+          let new_val = new_json.get(field);
+
+          if old_val != new_val {
+            if let Some(old_val) = old_val {
+              let old_index_key = format!("{}:idx:{}:{}", this.table_name, field, old_val);
+              if let Some(bytes) = this.db.get(&old_index_key).unwrap() {
+                let mut ids: Vec<String> = serde_json::from_slice(&bytes).unwrap();
+                ids.retain(|x| x != &key);
+                this
+                  .db
+                  .insert(&old_index_key, serde_json::to_vec(&ids).unwrap())
+                  .unwrap();
+              }
+            }
+
+            if let Some(new_val) = new_val {
+              let new_index_key = format!("{}:idx:{}:{}", this.table_name, field, new_val);
+              let mut ids: Vec<String> = if let Some(bytes) = this.db.get(&new_index_key).unwrap() {
+                serde_json::from_slice(&bytes).unwrap()
+              } else {
+                Vec::new()
+              };
+              ids.push(key.clone());
+              this
+                .db
+                .insert(&new_index_key, serde_json::to_vec(&ids).unwrap())
+                .unwrap();
+            }
+          }
+        }
+
+        let new_bytes = serde_json::to_vec(&new_json).unwrap();
+        this.db.insert(&key, new_bytes).unwrap();
+        this.db.flush().unwrap();
+
+        Ok(())
+      },
+    );
+
+    methods.add_method("remove", |_, this, key: String| {
+      if let Some(bytes) = this.db.get(&key).unwrap() {
+        let json_val: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        for field in &this.indexed_fields {
+          if let Some(field_value) = json_val.get(field) {
+            let index_key = format!("{}:idx:{}:{}", this.table_name, field, field_value);
+            if let Some(index_bytes) = this.db.get(&index_key).unwrap() {
+              let mut ids: Vec<String> = serde_json::from_slice(&index_bytes).unwrap();
+              ids.retain(|x| x != &key);
+              this
+                .db
+                .insert(&index_key, serde_json::to_vec(&ids).unwrap())
+                .unwrap();
+            }
+          }
+        }
+        this.db.remove(&key).unwrap();
+        this.db.flush().unwrap();
+      }
+      Ok(())
+    });
+  }
+}
+
 struct ServerRequest {
   req: Request,
   resp_tx: oneshot::Sender<Response>,
@@ -1178,9 +1603,9 @@ async fn axum_handler(State(req_tx): State<mpsc::Sender<ServerRequest>>, req: Re
 
   match resp_rx.await {
     Ok(resp) => resp,
-    Err(_) => (
+    Err(e) => (
       StatusCode::INTERNAL_SERVER_ERROR,
-      "Request handler failed to respond",
+      format!("Request handler failed to respond: {e}"),
     )
       .into_response(),
   }
@@ -1195,6 +1620,19 @@ pub fn get_std_module(name: &str) -> Option<Arc<STDModule>> {
 }
 
 pub fn init_std_modules() {
+  create_std_module("kvdb")
+    .add_function("open", |_, name: String| {
+      Ok(LuluSledDB {
+        db: sled::open(name).map_err(mlua::Error::external)?,
+      })
+    })
+    .on_register(|_, db_mod| Ok(db_mod))
+    .add_file(
+      "kvdb.lua",
+      std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/kvdb.lua").unwrap(),
+    )
+    .into();
+
   create_std_module("archive")
     .on_register(|lua, archive_mod| {
       let zip_mod = lua.create_table()?;
@@ -1391,7 +1829,7 @@ pub fn init_std_modules() {
 
           let url: String = req_table.get("url")?;
           let method: Option<String> = req_table.get("method").ok();
-          let body: Option<String> = req_table.get("body").ok();
+          let body: Option<mlua::Value> = req_table.get("body").ok();
           let headers: Option<HashMap<String, String>> = req_table.get("headers").ok();
 
           let mut req = client.request(
@@ -1411,8 +1849,18 @@ pub fn init_std_modules() {
             req = req.headers(hdrs);
           }
 
-          if let Some(b) = body {
-            req = req.body(b);
+          if let Some(body) = body {
+            match body {
+              mlua::Value::UserData(data) => {
+                let data = data.borrow::<LuluByteArray>()?;
+                req = req.body(data.bytes.clone());
+              }
+              mlua::Value::String(str) => req = req.body(str.to_str()?.to_string()),
+              mlua::Value::Nil => {}
+              _ => {
+                eprintln!("Unsupported body type, only ByteArray and String is allowed.")
+              }
+            }
           }
 
           let resp = req.send().await.map_err(LuaError::external)?;
@@ -1493,7 +1941,16 @@ pub fn init_std_modules() {
                   },
                 )?;
 
-                let resp_table: mlua::Table = handler.call_async(req_table).await?;
+                let resp_handled = handler.call_async(req_table).await;
+
+                match resp_handled.clone() {
+                  Err(e) => {
+                    eprintln!("{}", e);
+                  }
+                  _ => {}
+                };
+
+                let resp_table: mlua::Table = resp_handled?;
                 let status: u16 = resp_table.get("status").unwrap_or(200);
                 let body: mlua::Value = resp_table.get("body").unwrap_or(mlua::Value::Nil);
                 let headers: HashMap<String, String> =
@@ -1588,75 +2045,81 @@ pub fn init_std_modules() {
       "http.lua",
       std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/http.lua").unwrap(),
     )
-    .add_file(
-      "http_serve.lua",
-      std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/http_serve.lua")
-        .unwrap(),
+    .add_macro(
+      "error_res",
+      vec!["code".into(), "message".into()],
+      "Response { status = $code, body = $message }",
     )
+    .add_macro(
+      "json_res",
+      vec!["message".into()],
+      "Response { status = 200, body = serde.json.encode($message) }",
+    )
+    .depend_on("serde".to_string())
     .into();
 
-  create_std_module("threads").on_register(|lua, threads_mod| {
-    threads_mod.set(
-      "spawn",
-      lua.create_async_function(|lua, func: mlua::Function| async move {
-        let handle = tokio::spawn(async move { func.call_async::<mlua::Value>(()).await });
+  create_std_module("threads")
+    .on_register(|lua, threads_mod| {
+      threads_mod.set(
+        "spawn",
+        lua.create_async_function(|lua, func: mlua::Function| async move {
+          let handle = tokio::spawn(async move { func.call_async::<mlua::Value>(()).await });
 
-        let handle = Arc::new(Mutex::new(Some(handle)));
-        let handle_ref = handle.clone();
+          let handle = Arc::new(Mutex::new(Some(handle)));
+          let handle_ref = handle.clone();
 
-        TOK_ASYNC_HANDLES
-          .lock()
-          .unwrap()
-          .push(tokio::spawn(async move {
-            tokio::spawn(async move {
-              let join_handle = {
-                let mut lock = handle.lock().unwrap();
-                lock.take()
-              };
+          TOK_ASYNC_HANDLES
+            .lock()
+            .unwrap()
+            .push(tokio::spawn(async move {
+              tokio::spawn(async move {
+                let join_handle = {
+                  let mut lock = handle.lock().unwrap();
+                  lock.take()
+                };
 
-              if let Some(jh) = join_handle {
-                let _ = jh.await;
-              }
-            });
-          }));
+                if let Some(jh) = join_handle {
+                  let _ = jh.await;
+                }
+              });
+            }));
 
-        Ok(lua.create_any_userdata(LuluThreadHandle { handle: handle_ref })?)
-      })?,
-    )?;
+          Ok(lua.create_any_userdata(LuluThreadHandle { handle: handle_ref })?)
+        })?,
+      )?;
 
-    // threads.join(task)
-    threads_mod.set(
-      "join",
-      lua.create_async_function(|_, handle_ud: mlua::AnyUserData| async move {
-        let handle_arc = {
-          let handle = handle_ud.borrow::<LuluThreadHandle>()?;
-          handle.handle.clone()
-        };
+      // threads.join(task)
+      threads_mod.set(
+        "join",
+        lua.create_async_function(|_, handle_ud: mlua::AnyUserData| async move {
+          let handle_arc = {
+            let handle = handle_ud.borrow::<LuluThreadHandle>()?;
+            handle.handle.clone()
+          };
 
-        let join_handle_opt = {
-          let mut opt = handle_arc.lock().unwrap();
-          opt.take()
-        };
+          let join_handle_opt = {
+            let mut opt = handle_arc.lock().unwrap();
+            opt.take()
+          };
 
-        if let Some(join_handle) = join_handle_opt {
-          let result = join_handle.await.map_err(LuaError::external)??;
-          Ok(result)
-        } else {
-          Ok(mlua::Value::Nil)
-        }
-      })?,
-    )?;
+          if let Some(join_handle) = join_handle_opt {
+            let result = join_handle.await.map_err(LuaError::external)??;
+            Ok(result)
+          } else {
+            Ok(mlua::Value::Nil)
+          }
+        })?,
+      )?;
 
-    threads_mod.set(
-      "sleep",
-      lua.create_async_function(|_, ms: u64| async move {
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-        Ok(())
-      })?,
-    )?;
+      threads_mod.set(
+        "sleep",
+        lua.create_async_function(|_, ms: u64| async move {
+          tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+          Ok(())
+        })?,
+      )?;
 
-    Ok(threads_mod)
-  }).into();
-
-  
+      Ok(threads_mod)
+    })
+    .into();
 }

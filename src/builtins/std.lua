@@ -185,6 +185,7 @@ end
 function instanceof(obj, class)
   if not obj then return false end
   if not class and obj then return false end
+  if type(obj) ~= "table" then return false end
   local cls = obj.__class
   while cls do
     if cls == class then
@@ -575,7 +576,7 @@ class! @into_collectible("collect") Vec, {
   }
 }
 
-local function extract_serializable(o, parent)
+function extract_serializable(o, parent)
   parent = parent or {}
   if type(o) ~= "table" then
     if type(o) == "string" or type(o) == "number" or type(o) == "boolean" then
@@ -611,6 +612,7 @@ end
 
 function Deserializable(_stype)
   return function(_self, value, name)
+    if not value then return value end
     local deserialize = not instanceof(value, _stype)
     if _stype.__is_vec then
       deserialize = not instanceof(value, Vec)
@@ -819,6 +821,13 @@ function default_to(default)
   end
 end
 
+function default_not_nil(self, value, name)
+  if value == nil then
+    error(f"Param {name} should not be nil.")
+  end
+  return value
+end
+
 
 class! @into_collectible("collect") Sandbox, {
   init(){
@@ -843,7 +852,12 @@ setmetatable(lulib, {
   end,
   __index = function(tbl, key)
     return function()
-      request_env_load(key)
+      local tbl = request_env_load(key)
+      if type(tbl) == "table" and tbl.__include then
+        for _, k in ipairs(tbl.__include) do
+          request_env_load(k)
+        end
+      end
     end
   end
 })
