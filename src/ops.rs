@@ -1629,7 +1629,7 @@ pub fn init_std_modules() {
     .on_register(|_, db_mod| Ok(db_mod))
     .add_file(
       "kvdb.lua",
-      std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/kvdb.lua").unwrap(),
+      include_str!("builtins/net/kvdb.lua"),
     )
     .into();
 
@@ -2013,7 +2013,6 @@ pub fn init_std_modules() {
       )?;
       net_mod.set("tcp", tcp_mod)?;
 
-      // UDP
       let udp_mod = lua.create_table()?;
       udp_mod.set(
         "bind",
@@ -2024,7 +2023,6 @@ pub fn init_std_modules() {
       )?;
       net_mod.set("udp", udp_mod)?;
 
-      // WebSocket
       let ws_mod = lua.create_table()?;
       ws_mod.set(
         "connect",
@@ -2039,11 +2037,11 @@ pub fn init_std_modules() {
     })
     .add_file(
       "net.lua",
-      std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/net.lua").unwrap(),
+      include_str!("builtins/net/net.lua"),
     )
     .add_file(
       "http.lua",
-      std::fs::read_to_string("/home/makano/workspace/lulu/src/builtins/net/http.lua").unwrap(),
+      include_str!("builtins/net/http.lua"),
     )
     .add_macro(
       "error_res",
