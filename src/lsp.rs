@@ -1,4 +1,4 @@
-use emmylua_code_analysis::{EmmyLuaAnalysis};
+use emmylua_code_analysis::EmmyLuaAnalysis;
 use lulu::conf::{find_lulu_conf, load_lulu_conf};
 use lulu::lulu::STD_FILE;
 use lulu::sourcemap::{generate_sourcemap, lookup_lua_to_lulu};
@@ -19,9 +19,8 @@ struct Backend {
 
 impl Backend {
   pub fn new(client: Client) -> Self {
-
     let mut analysis = EmmyLuaAnalysis::new();
-    
+
     let std_code = include_str!("./builtins/stddef.lua");
 
     let tempdir = tempfile::tempdir().unwrap();
@@ -31,11 +30,11 @@ impl Backend {
     analysis.init_std_lib(None);
 
     analysis.add_library_workspace(tempdir.path().to_path_buf());
-    analysis.update_file_by_path(&std_path, Some(std_code.to_string()));    
-    
+    analysis.update_file_by_path(&std_path, Some(std_code.to_string()));
+
     Self {
       analysis: Arc::new(RwLock::new(analysis)),
-      client
+      client,
     }
   }
 
@@ -57,7 +56,10 @@ impl Backend {
         }
       }
       compiler.compile(STD_FILE, None, None);
-      (compiler.compile(text, Some(uri.path().to_string()), conf.clone()), conf)
+      (
+        compiler.compile(text, Some(uri.path().to_string()), conf.clone()),
+        conf,
+      )
     });
 
     if let Err(panic_payload) = compiler_result {
@@ -75,9 +77,11 @@ impl Backend {
     } else if let Ok((compiled_text, _conf)) = compiler_result {
       let mut analysis = self.analysis.write().await;
 
-
       let f = analysis
-        .update_file_by_path(&std::path::PathBuf::from(uri.path()), Some(compiled_text.to_string()))
+        .update_file_by_path(
+          &std::path::PathBuf::from(uri.path()),
+          Some(compiled_text.to_string()),
+        )
         .unwrap();
 
       let d = analysis.diagnose_file(f, CancellationToken::new());
@@ -109,22 +113,23 @@ impl Backend {
           let end = Position::new(end_line as u32, end_col as u32);
 
           if diag.message == "self maybe nil" {
-            continue
+            continue;
           }
 
-          let severity: DiagnosticSeverity = match format!("{:?}", diag.severity).to_lowercase().as_str() {
-            "some(error)" => DiagnosticSeverity::ERROR,
-            "some(hint)" => DiagnosticSeverity::HINT,
-            "some(warning)" => DiagnosticSeverity::WARNING,
-            _ => DiagnosticSeverity::INFORMATION,
-          };
+          let severity: DiagnosticSeverity =
+            match format!("{:?}", diag.severity).to_lowercase().as_str() {
+              "some(error)" => DiagnosticSeverity::ERROR,
+              "some(hint)" => DiagnosticSeverity::HINT,
+              "some(warning)" => DiagnosticSeverity::WARNING,
+              _ => DiagnosticSeverity::INFORMATION,
+            };
 
           diagnostics.push(Diagnostic {
             range: Range::new(start, end),
             severity: Some(severity),
             code: None,
             code_description: None,
-            source: Some("emmylua".to_string()),
+            source: Some("lululsp".to_string()),
             message: diag.message.clone(),
             related_information: None,
             tags: None,
@@ -150,7 +155,13 @@ impl LanguageServer for Backend {
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
       }),
       capabilities: ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+          TextDocumentSyncOptions {
+            change: Some(TextDocumentSyncKind::NONE), // ignore changes
+            save: Some(TextDocumentSyncSaveOptions::Supported(true)), // only on save
+            ..Default::default()
+          },
+        )),
         ..Default::default()
       },
     })
@@ -161,7 +172,7 @@ impl LanguageServer for Backend {
       .client
       .log_message(
         MessageType::INFO,
-        "lulu-lsp initialized with emmylua_check diagnostics.",
+        "lulu-lsp initialized with emmylua diagnostics.",
       )
       .await;
   }
@@ -170,9 +181,14 @@ impl LanguageServer for Backend {
     Ok(())
   }
 
-  async fn did_change(&self, params: DidChangeTextDocumentParams) {
-    if let Some(change) = params.content_changes.into_iter().next() {
-      self.on_change(params.text_document.uri, &change.text).await;
+  async fn did_save(&self, params: DidSaveTextDocumentParams) {
+    if let Some(change) = params.text {
+      self.on_change(params.text_document.uri, &change).await;
+    } else {
+      let path = params.text_document.uri.to_file_path().unwrap();
+      if let Ok(text) = std::fs::read_to_string(path) {
+        self.on_change(params.text_document.uri, &text).await;
+      }
     }
   }
 }

@@ -6,10 +6,6 @@ function lml_create()
 
 end
 
-lml! {
-  <example />
-}
-
 cfg! OS, {
   linux {
     print("Hello")
@@ -18,7 +14,7 @@ cfg! OS, {
 
 match! f, {
   Some {
-    print("hello")
+    print("hello", ff)
   }
   _ {}
 }
