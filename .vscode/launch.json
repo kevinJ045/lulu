@@ -12,6 +12,18 @@
         "MY_CUSTOM_ENV": "hello"
       },
       "stopOnEntry": false
+    },
+    {
+      "name": "Run Lulu Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/vscode-extension/out/**/*.js"
+      ],
+      "preLaunchTask": "npm: compile -p vscode-extension"
     }
   ]
 }

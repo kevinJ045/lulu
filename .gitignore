@@ -1,3 +1,4 @@
 /target
 /.direnv
 /**/**/.lib
+/**/**/node_modules

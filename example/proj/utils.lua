@@ -1,6 +1,8 @@
 
+---@class T
+---@field thing fun(number)
+utils = {}
 
-iprint(require("proj2/init"))
-iprint(require("proj3/init"))
-
-return mod
+return {
+  name = "djdjd"
+}

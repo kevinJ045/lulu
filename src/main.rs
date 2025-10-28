@@ -22,6 +22,7 @@ mod package_manager;
 mod project;
 mod resolver;
 mod util;
+mod sourcemap;
 
 macro_rules! into_exec_command {
   ($lua:expr, $env:expr, (), $cmd:expr $(, $arg:expr)*) => {{

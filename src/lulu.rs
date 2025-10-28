@@ -4,7 +4,7 @@ use crate::ops::{self, register_consts};
 use mlua::{Lua, chunk};
 use std::path::PathBuf;
 
-const STD_FILE: &str = include_str!("./builtins/std.lua");
+pub const STD_FILE: &str = include_str!("./builtins/std.lua");
 
 #[derive(Debug, Clone)]
 pub struct LuLib {

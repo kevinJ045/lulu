@@ -1,22 +1,22 @@
 # Configuration (`lulu.conf.lua`)
 
-The `lulu.conf.lua` file is the heart of every Lulu project. It's a Lua script that acts as a manifest, defining your project's metadata, files, dependencies, and build process.
+The `lulu.conf.lua` file is the brains of your Lulu project. It's a Lua script that tells Lulu everything it needs to know: what your project is, what files it uses, what it depends on, and how to build it.
 
-Here is a breakdown of all the major fields available.
+Let's break down all the important fields.
 
 ## `manifest`
 
 **Type**: `table` | **Required**: `true`
 
-Contains metadata about your project. While most fields are for informational purposes now, they may be used by future tooling or package managers. (I may make lulu does more with these in the future).
+This table holds all the metadata about your project. Think of it like the cover of a book. For now, it's mostly for informational purposes, but I might make Lulu do more with it in the future.
 
 ```lua
 manifest = {
-  name = "my-project", -- Required
+  name = "my-awesome-project", -- Required
   version = "1.0.0",
-  description = "A brief description of my project.",
+  description = "A really cool project that does amazing things.",
   authors = {"Your Name <you@example.com>"},
-  tags = { "cli", "tool" }
+  tags = { "cli", "tool", "awesome" }
 }
 ```
 
@@ -24,60 +24,60 @@ manifest = {
 
 **Type**: `table` | **Required**: `true`
 
-Maps a module name to a Lua file path. This tells Lulu which files are part of your project, allowing them to be bundled and required by their mapped name.
+This is where you map friendly module names to your Lua files. This lets Lulu know which files are part of your project, so you can `require()` them easily.
 
 ```lua
 mods = {
-  -- The `main` module is special; it's the entry point for `lulu run`
+  -- The `main` module is special: it's what `lulu run` looks for
   main = "src/main.lua",
 
-  -- Other modules can be named anything
+  -- You can name your other modules whatever you want
   utils = "src/utils.lua",
   engine = "src/engine/init.lua"
 }
 ```
 
-Within your project, you can then use `require("utils")` to load `src/utils.lua`, otherwise it would be `require("project_name/utils")`.
+Now, from anywhere in your project, you can just `require("utils")` to get `src/utils.lua`. No more messy relative paths!
 
 ## `dependencies`
 
-**Type**: `table` (array of strings) | **Required**: `false`
+**Type**: `table` (of strings) | **Required**: `false`
 
-Defines a list of external libraries your project depends on. Lulu can fetch dependencies from GitHub or direct URLs.
+A list of all the external libraries your project needs. Lulu can grab them from GitHub or any other URL.
 
 ```lua
 dependencies = {
-  -- Fetch from a GitHub repository
+  -- From a GitHub repo (you can specify a branch or commit hash)
   "github:username/repo",
   "github:username/repo@branch",
   "github:username/repo#commit",
 
-  -- Fetch a library bundle from a URL
+  -- From a direct URL to a library bundle
   "https://example.com/path/to/package.lulib"
 }
 ```
 
-When a dependency is fetched, Lulu downloads it to a central cache. To actually use the code from a dependency in your project, you must list it in the `include` field.
+Just listing a dependency here downloads it. To actually *use* it in your code, you also need to add it to the `include` field.
 
 ## `fetch`
 
 **Type**: `string` or `table` | **Required**: `false`
 
-This field is used when your project is intended to be used as a library by others. It tells Lulu what to provide when another project lists yours as a dependency.
+This field is for when you're building a library for others to use. It tells Lulu what to give them when they add your project as a dependency.
 
-- **`fetch = "code"`**: Tells Lulu to clone the entire repository. This is for libraries that need to be built from source.
+- **`fetch = "code"`**: Tells Lulu to just clone your whole repository. This is for libraries that need to be built from source.
 
-- **`fetch = { lulib = "..." }`**: Tells Lulu to download a pre-built `.lulib` file from the specified URL.
+- **`fetch = { lulib = "..." }`**: Tells Lulu where to find a pre-built `.lulib` file.
 
 ```lua
--- Option 1: Build from source
+-- Option 1: Let users build from the source code
 fetch = "code"
 
--- Option 2: Download pre-built artifacts
+-- Option 2: Point users to pre-built files
 fetch = {
   lulib = "https://github.com/user/repo/releases/download/v1.0.0/package.lulib",
   
-  -- Optional: Include platform-specific dynamic libraries (.so, .dll, .dylib)
+  -- You can also include platform-specific goodies like .so, .dll, or .dylib files
   include = {
     linux = {"https://.../package-linux.so"},
     windows = {"https://.../package-windows.dll"},
@@ -88,44 +88,44 @@ fetch = {
 
 ## `include`
 
-**Type**: `table` (array of strings) | **Required**: `false`
+**Type**: `table` (of strings) | **Required**: `false`
 
-Specifies which fetched dependencies should be made available to your project's runtime. This is how you gain access to the code you defined in the `dependencies` table.
+This is how you tell your project to actually load the code from the dependencies you've fetched.
 
 ```lua
 include = {
-  -- Include a dependency by its library name (from its manifest)
+  -- Include a dependency by its library name (from its own manifest)
   "@libname",
 
-  -- You can also include a .lulib file by its path
+  -- You can also include a local .lulib file
   "./path/to/local/lib.lulib"
 }
 ```
 
-When you include `@libname`, Lulu looks for `libname.lulib` inside your project's local `.lib/lulib/` directory, which is where dependencies are placed after being fetched.
+When you include `@libname`, Lulu looks for a `libname.lulib` file in your project's `.lib/lulib/` folder, which is where all the fetched dependencies live.
 
 ## `build`
 
 **Type**: `function` | **Required**: `false`
 
-Defines the build process for your project. When you run `lulu build`, Lulu executes this function. A special environment with helper functions is available inside this function.
+This is where the magic happens! This function defines your project's build process. When you run `lulu build`, Lulu just runs this function.
 
 ```lua
 build = function()
-  -- 1. Resolve and fetch all dependencies
+  -- Step 1: Grab all our dependencies
   resolve_dependencies()
 
-  -- 2. Bundle the main module into a standalone executable
+  -- Step 2: Bundle our main module into a runnable program
   bundle_main("main.lua")
 end
 ```
 
-For a full list of available helper functions, see the [Build Environment](./build-environment.md) reference.
+For a full list of all the cool helper functions you can use in here, check out the [Build Environment](./build-environment.md) reference.
 
 ## `macros`
 
 **Type**: `string` or `table` | **Required**: `false`
 
-Lets you define and export custom macros from your project, making them available to any other project that uses yours as a library.
+This lets you define your own custom macros and share them with any other project that uses yours as a library.
 
-See the [Custom Macros](../macros/custom-macros.md) page for a detailed guide.
+Check out the [Custom Macros](../macros/custom-macros.md) page to learn how to become a macro wizard.

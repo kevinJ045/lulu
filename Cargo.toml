@@ -2,14 +2,19 @@
 name = "lulu"
 version = "0.0.701"
 authors = ["makano"]
-edition = "2024"
+edition = "2021"
 license = "MIT"
 repository = "https://github.com/kevinj045/lulu"
 description = "A mini lua runtime"
+default-run = "lulu"
 
 [lib]
 name = "lulu"
 path = "src/lib.rs"
+
+[[bin]]
+name = "lulu-lsp"
+path = "src/lsp.rs"
 
 [dependencies]
 mlua = { version = "0.11.4", features = ["luajit", "vendored", "async", "macros", "serde", "send"] }
@@ -35,3 +40,10 @@ axum = "0.8.6"
 futures-util = "0.3.31"
 hyper = "1.7.0"
 sled = "0.34.7"
+tower-lsp = "0.20.0"
+emmylua_check = "=0.13"
+emmylua_code_analysis = "=0.13"
+tempfile = "3.23.0"
+lsp-types = "0.97.0"
+tokio-util = "0.7.16"
+

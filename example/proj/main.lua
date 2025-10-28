@@ -1,7 +1,13 @@
-utils = require('utils')
+--- A simple Printer
+---@param _x string
+---@return nil
+function ddd(_x) end
 
-print(mod.name, utils.name, current_path)
+fprint(11)
 
-hello! { "something" }
 
-print(lookup_dylib("my.so"), lookup_dylib("some.so"))
+---@param source string
+---@param name? string
+---@param env? table
+---@return any
+function exec_sandboxed(source, name, env) end

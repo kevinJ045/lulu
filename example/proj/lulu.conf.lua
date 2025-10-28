@@ -11,6 +11,12 @@ mods = {
   utils = "utils.lua"
 }
 
+macros = [[
+  macro {
+    hello ($hh) { $hh }
+  }
+]]
+
 include = {
   "@proj3"
 }
