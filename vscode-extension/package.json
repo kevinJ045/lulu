@@ -30,9 +30,14 @@
   "contributes": {
     "configurationDefaults": {
       "Lua.diagnostics.enable": false
-    }
-  },
-  "extensionDependencies": [
-    "sumneko.lua"
-  ]
+    },
+    "grammars": [
+      {
+        "language": "lua",
+        "scopeName": "source.lulu",
+        "path": "./syntaxes/lulu.tmLanguage.json",
+        "injectTo": ["source.lua"]
+      }
+    ]
+  }
 }

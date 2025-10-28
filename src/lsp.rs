@@ -1,5 +1,6 @@
 use emmylua_code_analysis::{EmmyLuaAnalysis};
 use lulu::conf::{find_lulu_conf, load_lulu_conf};
+use lulu::lulu::STD_FILE;
 use lulu::sourcemap::{generate_sourcemap, lookup_lua_to_lulu};
 use std::panic;
 use std::sync::Arc;
@@ -55,6 +56,7 @@ impl Backend {
           _ => None,
         }
       }
+      compiler.compile(STD_FILE, None, None);
       (compiler.compile(text, Some(uri.path().to_string()), conf.clone()), conf)
     });
 
@@ -105,6 +107,10 @@ impl Backend {
 
           let start = Position::new(start_line as u32, start_col as u32);
           let end = Position::new(end_line as u32, end_col as u32);
+
+          if diag.message == "self maybe nil" {
+            continue
+          }
 
           let severity: DiagnosticSeverity = match format!("{:?}", diag.severity).to_lowercase().as_str() {
             "some(error)" => DiagnosticSeverity::ERROR,

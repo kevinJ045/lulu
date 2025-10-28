@@ -1,11 +1,6 @@
----@meta
 -- Lulu standard definitions for static analysis (generated)
 
 --=== Macros & special syntax ===--
-
----@class LuluMacro
-macro = {} ---@type table<string, any>
-
 ---@class LuluDecorator
 decorator = {} ---@type table<string, any>
 
@@ -36,7 +31,7 @@ function extract_serializable(obj, parent) end
 function Deserializable(_stype) end
 
 ---@param _stype string
----@return fun(_class:table):table
+---@return fun(_class:table, name?:string):table
 function Serializable(_stype) end
 
 
@@ -58,8 +53,12 @@ function Future.new(fn) end
 function Future:poll(...) end
 function Future:last() end
 function Future:await() end
-function Future:after(cb:fun(any):any):Future end
-function Future:catch(cb:fun(any):any):Future end
+---@param cb fun(any):any
+---@return Future
+function Future:after(cb) end
+---@param cb fun(any):any
+---@return Future
+function Future:catch(cb) end
 
 ---@param fn fun()
 ---@return Future
@@ -69,76 +68,131 @@ function async(fn) end
 
 ---@class Vec<T>
 ---@field items T[]
-local Vec = {}
+Vec = {}
 
 function Vec:push(...) end
 function Vec:pop() end
 function Vec:len() end
-function Vec:get(index:integer):any end
-function Vec:set(index:integer, value:any) end
-function Vec:map(fn:fun(v:any, i:integer, self:Vec):any):Vec end
-function Vec:filter(fn:fun(v:any, i:integer, self:Vec):boolean):Vec end
-function Vec:join(sep:string):string end
-function Vec:clone():Vec end
-function Vec:serialize(keep:boolean):string|Vec end
-function Vec:deserialize(thing:any, _type:any):Vec end
-function Vec:of(_type:any):table end
+---@param index integer
+---@return Vec
+function Vec:get(index) end
+---@param index integer
+---@param value T
+---@return Vec
+function Vec:set(index, value) end
+
+---@param fn fun(v:T, i:integer, self:Vec<T>):any
+---@return Vec<T>
+function Vec:map(fn) end
+---@param fn fun(v:T, i:integer, self:Vec<T>):boolean
+---@return Vec<T>
+function Vec:filter(fn) 
+---@param sep string
+---@return string
+function Vec:join(sep) end
+---@return Vec<T>
+function Vec:clone() end
+---@param ... Vec | table
+---@return Vec<T>
 function Vec:extend(...) end
+
 
 ---@class Set<T>
 ---@field items table<T, boolean>
-local Set = {}
+Set = {}
 
-function Set:add(value:any):Set end
-function Set:remove(value:any):Set end
-function Set:has(value:any):boolean end
-function Set:values():Vec end
-function Set:clone():Set end
+---@return Set
+function Set:add(value) end
+---@return Set
+function Set:remove(value) end
+---@return boolean
+function Set:has(value) end
+function Set:values() end
+---@return Set
+function Set:clone() end
 
 ---@class WeakSet:Set
-local WeakSet = {}
+WeakSet = {}
 
 ---@class Map<K,V>
 ---@field items table<K,V>
-local Map = {}
+Map = {}
 
-function Map:set(key:any, value:any):Map end
-function Map:get(key:any, default:any):V end
-function Map:has(key:any):boolean end
-function Map:remove(key:any):Map end
-function Map:keys():Vec end
-function Map:values():Vec end
-function Map:clone():Map end
+---@return Map
+function Map:set(key, value) end
+---@return V
+function Map:get(key, default) end
+---@return boolean
+function Map:has(key) end
+---@return Map
+function Map:remove(key) end
+---@return Vec
+function Map:keys() end
+---@return Vec
+function Map:values() end
+---@return Map
+function Map:clone() end
 
 ---@class WeakMap:Map
-local WeakMap = {}
+WeakMap = {}
 
 ---@class String
 ---@field str string
-local String = {}
+String = {}
 
-function String:push_str(s:string):String end
-function String:push_string(s:any):String end
-function String:split(sep:string):Vec end
-function String:starts_with(prefix:string):boolean end
-function String:ends_with(suffix:string):boolean end
-function String:replace(pattern:string, repl:string):String end
-function String:clone():String end
-function String:__tostring():string end
+---@param s string
+---@return String
+function String:push_str(s) end
+---@param s any
+---@return String
+function String:push_string(s) end
+---@param sep string
+---@return Vec
+function String:split(sep) end
+---@param prefix string
+---@return boolean
+function String:starts_with(prefix) end
+---@param prefix string
+---@return boolean
+function String:ends_with(suffix) end
+---@param pattern string
+---@param repl string | fun(...:string):string
+---@return String
+function String:replace(pattern, repl) end
+---@return String
+function String:clone() end
+---@return string
+function String:__tostring() end
 
 
 --=== Enums ===--
 
----@class Enum
----@field func table<string, function>
-local Enum = {}
+---@param name string
+---@return table
+function make_enum(name) end
 
-function make_enum(name:string):Enum end
-function make_enum_var(enum_table:any, vname:string, names:any, ...:any) end
-function make_enum_var_dyn(enum_table:any, vname:string, names:any):function end
-function get_enum_var_name(var:any):string end
+---@param enum_table table
+---@param vname string
+---@param names any
+---@return table<string, any>
+function make_enum_var(enum_table, vname, names) return {} end
 
-Option = make_enum("Option")
+---@param enum_table table
+---@param vname string
+---@param names any
+---@return fun(...):table<string, any>
+function make_enum_var_dyn(enum_table, vname, names) return function() end end 
+
+function get_enum_var_name(var) end
+
+---@class table
+---@field Some fun(...):table
+---@field None table
+Option = {}
+
+---@class table
+---@field Ok fun(...):table
+---@field Err table
 Result = make_enum("Result")
 
 Some = Option.Some
@@ -149,31 +203,41 @@ Err = Result.Err
 
 --=== Classes & Utilities ===--
 
-function make_class(class_raw:any, parent:any):any end
-function instanceof(obj:any, class:any):boolean end
-function empty_class():any end
-function namespace(tbl:any):function end
+---@param class_raw table
+---@param parent any
+---@return table
+function make_class(class_raw, parent) end
+function instanceof(obj, class) end
+function empty_class() end
+function namespace(tbl) end
 
 
 ---@param _name string
----@return fun(tbl:any):any
+---@return fun(tbl:any)
 function into_collectible(_name) end
 
 ---@param ... any
 ---@return function
 function validate_type(...) end
 
-function iseq(a:any, b:any):boolean end
-function index_of(object:any, item:any):integer|nil end
+---@param a any
+---@param b any
+---@return boolean
+function iseq(a, b) end
 
-function default_to(default:any):fun(self:any, value:any):any end
-function default_not_nil(self:any, value:any, name:string):any end
+function index_of(object, item) end
+
+---@return fun(any, value):any
+function default_to(default) end
+
+---@return fun(any, value):any
+function default_not_nil(self, value, name) end
 
 ---@class Sandbox
 ---@field env table
 Sandbox = {}
-function Sandbox:set(key:any, val:any):Sandbox end
-function Sandbox:eval(code:string, name?:string):any end
+function Sandbox:set(key, val) end
+function Sandbox:eval(code, name) end
 
 
 
@@ -188,12 +252,41 @@ lulib = {}
 function lulib.__call(env, name) end
 
 
+---@class ByteArray
+ByteArray = {}
+
+---@return string
+function ByteArray:to_string() end
+
+---@return Vec
+function ByteArray:to_vec() end
 
 ---@class Net
----@field http Http
----@class tcp Tcp
----@class udp UDP
 net = {}
+
+---@class Response
+---@field status number
+---@field body ByteArray
+---@field uri string
+---@field headers table<string, string>
+local Response = {}
+
+---@class Request
+---@field status number
+---@field body any
+---@field uri string
+---@field headers table<string, string>
+local Request = {}
+
+---@class Http
+---@field request fun(table):Response
+---@field get fun(table):Response
+---@field post fun(table):Response
+---@field put fun(table):Response
+---@field patch fun(table):Response
+---@field delete fun(table):Response
+---@field serve fun(f: fun(request: Request):any)
+net.http = {}
 
 ---@class Archive
 archive = {}
@@ -209,12 +302,16 @@ threads = {}
 function using(...) end
 
 ---@param ... any
----@return function
-function lookup_dylib(...) end
+---@return nil
+function fprint(...) end
 
 ---@param ... any
 ---@return function
 function lookup_dylib(...) end
+
+---@param ... any
+---@return any
+function require_cached(...) end
 
 ---@type string
 current_path = ""

@@ -1,13 +1,30 @@
---- A simple Printer
----@param _x string
----@return nil
-function ddd(_x) end
 
-fprint(11)
+local f = Option.Some("SS")
+local nums = vec! { 10 }
 
+function lml_create()
 
----@param source string
----@param name? string
----@param env? table
----@return any
-function exec_sandboxed(source, name, env) end
+end
+
+lml! {
+  <example />
+}
+
+cfg! OS, {
+  linux {
+    print("Hello")
+  }
+}
+
+match! f, {
+  Some {
+    print("hello")
+  }
+  _ {}
+}
+
+class! ff, {
+  init(){
+    self.name = ""
+  }
+}
