@@ -9,3 +9,12 @@ pub mod project;
 pub mod resolver;
 pub mod util;
 pub mod sourcemap;
+
+pub use tokio;
+pub use mlua;
+pub use lazy_static;
+pub use serde;
+pub use serde_json;
+pub use serde_yaml;
+pub use reqwest;
+pub use clap;
