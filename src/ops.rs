@@ -17,8 +17,10 @@ use std::fs;
 use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::io::{BufRead, BufReader};
 use std::io::{Read, Write};
-use std::sync::Mutex;
+use std::process::{Child, ChildStdin, Stdio};
+use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time;
 use zip::write::ExtendedFileOptions;
@@ -118,7 +120,6 @@ impl mlua::UserData for LuluHashSet {
     });
 
     methods.add_method_mut("remove", |lua, this, value: mlua::Value| {
-      // scan items and remove the one that matches `value`
       let mut to_remove = None;
       for &ptr in &this.items {
         let key_ref = unsafe { &*(ptr as *mut mlua::RegistryKey) };
@@ -388,55 +389,154 @@ fn create_std(lua: &Lua) -> mlua::Result<()> {
 }
 
 fn register_exec(lua: &Lua) -> mlua::Result<()> {
-  let exec = lua.create_function(|lua, (command, inherit): (String, Option<bool>)| {
-    let parts = split_command(&command);
-    if parts.is_empty() {
-      return Err(LuaError::external("empty command"));
-    }
+  lua.globals().set(
+    "exec",
+    lua.create_function(|lua, (command, inherit): (String, Option<bool>)| {
+      let parts = split_command(&command);
+      if parts.is_empty() {
+        return Err(LuaError::external("empty command"));
+      }
 
-    let program = &parts[0];
-    let args = &parts[1..];
+      let program = &parts[0];
+      let args = &parts[1..];
 
-    let inherit = inherit.unwrap_or(false);
+      let inherit = inherit.unwrap_or(false);
 
-    if inherit {
-      let status = std::process::Command::new(program)
-        .args(args)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .status()
-        .map_err(LuaError::external)?;
+      if inherit {
+        let status = std::process::Command::new(program)
+          .args(args)
+          .stdin(std::process::Stdio::inherit())
+          .stdout(std::process::Stdio::inherit())
+          .stderr(std::process::Stdio::inherit())
+          .status()
+          .map_err(LuaError::external)?;
 
+        let result = lua.create_table()?;
+        result.set("status", status.code().unwrap_or(-1))?;
+        result.set("success", status.success())?;
+
+        Ok(mlua::Value::Table(result))
+      } else {
+        let output = std::process::Command::new(program)
+          .args(args)
+          .output()
+          .map_err(LuaError::external)?;
+
+        let result = lua.create_table()?;
+        result.set(
+          "stdout",
+          String::from_utf8_lossy(&output.stdout).to_string(),
+        )?;
+        result.set(
+          "stderr",
+          String::from_utf8_lossy(&output.stderr).to_string(),
+        )?;
+        result.set("status", output.status.code().unwrap_or(-1))?;
+        result.set("success", output.status.success())?;
+
+        Ok(mlua::Value::Table(result))
+      }
+    })?,
+  )?;
+
+  lua.globals().set(
+    "spawn",
+    lua.create_function(|_, command: String| spawn_process_with_buffer(&command))?,
+  )?;
+
+  Ok(())
+}
+
+struct ProcessHandle {
+  stdin: Arc<Mutex<Option<ChildStdin>>>,
+  lines: Arc<Mutex<Vec<String>>>,
+  child: Arc<Mutex<Child>>,
+}
+
+impl mlua::UserData for ProcessHandle {
+  fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_method_mut("write", |_, this, input: String| {
+      if let Some(stdin) = &mut *this.stdin.lock().unwrap() {
+        stdin
+          .write_all(input.as_bytes())
+          .map_err(LuaError::external)?;
+        stdin.flush().map_err(LuaError::external)?;
+      }
+      Ok(())
+    });
+
+    methods.add_method("read", |lua, this, ()| {
+      let mut lines = this.lines.lock().unwrap();
+      if lines.is_empty() {
+        return Ok(mlua::Value::Nil);
+      }
+      let line = lines.remove(0);
+      Ok(mlua::Value::String(lua.create_string(&line)?))
+    });
+
+    methods.add_method_mut("wait", |lua, this, ()| {
+      let mut child = this.child.lock().unwrap();
+      let status = child.wait().map_err(LuaError::external)?;
       let result = lua.create_table()?;
       result.set("status", status.code().unwrap_or(-1))?;
       result.set("success", status.success())?;
+      Ok(result)
+    });
 
-      Ok(mlua::Value::Table(result))
-    } else {
-      let output = std::process::Command::new(program)
-        .args(args)
-        .output()
-        .map_err(LuaError::external)?;
+    methods.add_method("wait_nonblocking", |lua, this, ()| {
+      let mut child = this.child.lock().unwrap();
+      match child.try_wait() {
+        Ok(Some(status)) => {
+          let result = lua.create_table()?;
+          result.set("status", status.code().unwrap_or(-1))?;
+          result.set("success", status.success())?;
+          Ok(mlua::Value::Table(result))
+        }
+        Ok(None) => Ok(mlua::Value::Nil),
+        Err(e) => Err(LuaError::external(e)),
+      }
+    });
 
-      let result = lua.create_table()?;
-      result.set(
-        "stdout",
-        String::from_utf8_lossy(&output.stdout).to_string(),
-      )?;
-      result.set(
-        "stderr",
-        String::from_utf8_lossy(&output.stderr).to_string(),
-      )?;
-      result.set("status", output.status.code().unwrap_or(-1))?;
-      result.set("success", output.status.success())?;
+    methods.add_method_mut("close_stdin", |_, this, ()| {
+      *this.stdin.lock().unwrap() = None;
+      Ok(())
+    });
+  }
+}
 
-      Ok(mlua::Value::Table(result))
+fn spawn_process_with_buffer(command: &str) -> mlua::Result<ProcessHandle> {
+  let mut parts = split_command(command);
+  let program = parts.remove(0);
+
+  let mut child = std::process::Command::new(program)
+    .args(parts)
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::inherit())
+    .spawn()
+    .map_err(mlua::Error::external)?;
+
+  let stdout = child.stdout.take().unwrap();
+  let lines = Arc::new(Mutex::new(Vec::new()));
+  let lines_clone = Arc::clone(&lines);
+
+  std::thread::spawn(move || {
+    let reader = BufReader::new(stdout);
+    for line in reader.lines() {
+      if let Ok(line) = line {
+        {
+          let mut buffer = lines_clone.lock().unwrap();
+          buffer.push(line.clone());
+        }
+      }
     }
-  })?;
+  });
 
-  lua.globals().set("exec", exec)?;
-  Ok(())
+  Ok(ProcessHandle {
+    stdin: Arc::new(Mutex::new(child.stdin.take())),
+    lines,
+    child: Arc::new(Mutex::new(child)),
+  })
 }
 
 pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
@@ -985,7 +1085,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex as TokioMutex;
@@ -1336,7 +1436,6 @@ impl mlua::UserData for LuluSledDBMulti {
     );
 
     methods.add_method("index", |lua, this, id: String| {
-      
       let key = if id.contains(':') {
         id
       } else {
@@ -1627,10 +1726,7 @@ pub fn init_std_modules() {
       })
     })
     .on_register(|_, db_mod| Ok(db_mod))
-    .add_file(
-      "kvdb.lua",
-      include_str!("builtins/net/kvdb.lua"),
-    )
+    .add_file("kvdb.lua", include_str!("builtins/net/kvdb.lua"))
     .into();
 
   create_std_module("archive")
@@ -2035,14 +2131,8 @@ pub fn init_std_modules() {
 
       Ok(net_mod)
     })
-    .add_file(
-      "net.lua",
-      include_str!("builtins/net/net.lua"),
-    )
-    .add_file(
-      "http.lua",
-      include_str!("builtins/net/http.lua"),
-    )
+    .add_file("net.lua", include_str!("builtins/net/net.lua"))
+    .add_file("http.lua", include_str!("builtins/net/http.lua"))
     .add_macro(
       "error_res",
       vec!["code".into(), "message".into()],

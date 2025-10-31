@@ -1,7 +1,7 @@
 utils = require('utils')
 
-print(mod.name, utils.name, current_path)
+local fttg = {
+  tf = "fff"
+}
 
-hello! { "something" }
-
-print(lookup_dylib("my.so"), lookup_dylib("some.so"))
+print(fttg.fttg)

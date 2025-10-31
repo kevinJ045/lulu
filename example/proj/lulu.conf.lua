@@ -15,6 +15,12 @@ include = {
   "@proj3"
 }
 
+macros = [[
+  macro {
+    hello($hh) { $hh }
+  }
+]]
+
 dependencies = {
   "github:kevinj045/demo-lulu-proj-2"
 }
