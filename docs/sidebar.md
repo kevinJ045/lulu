@@ -25,4 +25,4 @@
 
 * **Stubs**
   * [About Stubs](stubs/README.md)
-  * [UI Stub](macros/ui.md)
+  * [UI Stub](stubs/ui.md)

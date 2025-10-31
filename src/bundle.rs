@@ -111,6 +111,14 @@ pub fn make_bin(output: &PathBuf, bytes: HashMap<String, LuLib>) -> std::io::Res
 
   write_bin(output, bytes)?;
 
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(output.clone())?.permissions();
+    perms.set_mode(perms.mode() | 0o111);
+    std::fs::set_permissions(output.clone(), perms)?;
+  }
+
   file.flush()?;
 
   Ok(())
