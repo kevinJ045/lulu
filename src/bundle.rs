@@ -93,8 +93,19 @@ pub fn set_exec_path<P: Into<PathBuf>>(path: P) {
 
 pub fn make_bin(output: &PathBuf, bytes: HashMap<String, LuLib>) -> std::io::Result<()> {
   let exe_path = get_exec_path();
-  std::fs::copy(&exe_path, output)?;
+
+  let mut exe_file = File::open(&exe_path)?;
+  let mut exe_contents = Vec::new();
+  exe_file.read_to_end(&mut exe_contents)?;
+
+  let mut file = File::create(&output)?;
+
+  file.write_all(&exe_contents)?;
+
   write_bin(output, bytes)?;
+
+  file.flush()?;
+
   Ok(())
 }
 
@@ -204,11 +215,7 @@ pub fn reg_bundle_nods(lulu: &mut Lulu, mods: HashMap<String, LuLib>) -> mlua::R
   Ok(())
 }
 
-pub async fn run_bundle(
-  mods: HashMap<String, LuLib>,
-  lulu: &mut Lulu
-) -> mlua::Result<()> {
-
+pub async fn run_bundle(mods: HashMap<String, LuLib>, lulu: &mut Lulu) -> mlua::Result<()> {
   reg_bundle_nods(lulu, mods)?;
 
   lulu.preload_mods()?;
