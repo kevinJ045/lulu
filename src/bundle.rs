@@ -94,11 +94,10 @@ pub fn set_exec_path<P: Into<PathBuf>>(path: P) {
 pub fn make_bin(output: &PathBuf, bytes: HashMap<String, LuLib>) -> std::io::Result<()> {
   let exe_path = get_exec_path();
 
-  let output = {
-    #[cfg(target_os = "windows")]
-    {output.with_extension("exe")}
-    #[cfg(target_os = "linux")]
-    {output}
+  let output = if std::env::consts::OS == "windows" {
+    &output.with_extension("exe")
+  } else {
+    output
   };
 
   let mut exe_file = File::open(&exe_path)?;
