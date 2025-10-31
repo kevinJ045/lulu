@@ -22,3 +22,7 @@
   * [`lml!`](macros/lml.md)
   * [Other Macros](macros/other-macros.md)
   * [Custom Macros](macros/custom-macros.md)
+
+* **Stubs**
+  * [About Stubs](stubs/README.md)
+  * [UI Stub](macros/ui.md)

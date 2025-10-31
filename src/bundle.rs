@@ -94,6 +94,13 @@ pub fn set_exec_path<P: Into<PathBuf>>(path: P) {
 pub fn make_bin(output: &PathBuf, bytes: HashMap<String, LuLib>) -> std::io::Result<()> {
   let exe_path = get_exec_path();
 
+  let output = {
+    #[cfg(target_os = "windows")]
+    {output.with_extension("exe")}
+    #[cfg(target_os = "linux")]
+    {output}
+  };
+
   let mut exe_file = File::open(&exe_path)?;
   let mut exe_contents = Vec::new();
   exe_file.read_to_end(&mut exe_contents)?;

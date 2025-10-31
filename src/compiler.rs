@@ -624,6 +624,8 @@ impl Compiler {
     let mut defs = HashMap::new();
 
     defs.insert("OS".to_string(), std::env::consts::OS.to_lowercase());
+    defs.insert("ARCH".to_string(), std::env::consts::ARCH.to_lowercase());
+    defs.insert("FAMILY".to_string(), std::env::consts::FAMILY.to_lowercase());
 
     Compiler {
       macros: MacroRegistry::new(),

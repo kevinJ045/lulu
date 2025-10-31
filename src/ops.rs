@@ -969,6 +969,8 @@ pub fn register_consts(lua: &Lua) -> mlua::Result<()> {
 
   lua.globals().set("CURRENT_ARCH", std::env::consts::ARCH)?;
 
+  lua.globals().set("CURRENT_FAMILY", std::env::consts::FAMILY)?;
+
   lua.globals().set("LULU_VER", env!("CARGO_PKG_VERSION"))?;
 
   Ok(())
