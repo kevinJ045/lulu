@@ -634,7 +634,10 @@ function Serializable(_stype)
       return self:serialize()
     end
     (arg) _class:deserialize =>
-      return _class(serde[_stype].decode(arg))
+      if type(arg) == "string" then
+        arg = serde[_stype].decode(arg)
+      end
+      return _class(arg)
     end
     return _class
   end

@@ -39,11 +39,11 @@ using { lulib.net, lulib.kvdb }
 
   local {} -> @Controller("/users") Users
 
-  (@Param('name') name, @Query('select') selected) @Get("/:name/posts") @Serialized Users:getPosts =>
+  (@Param('name') name, @Query('select') selected) @Serialized @Get("/:name/posts") Users:getPosts =>
     return posts:find('by', name):select(selected or  'id,title,content')
   end
 
-  (@Param('name') name, @Query('select') selected) @Get("/:name") @Serialized Users:getUser =>
+  (@Param('name') name, @Query('select') selected) @Serialized @Get("/:name") Users:getUser =>
     local user = users:find('name', name):into()
     if user.len() < 1 then
       return error_res! 404, f"User {name} not found.";

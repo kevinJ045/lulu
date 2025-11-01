@@ -187,3 +187,26 @@ table.side-by-side pre[data-lang] {
 .token.string {
   color: #9ECBFF !important;
 }
+
+.side-by-side-list{
+  display: flex;
+}
+
+.side-by-side-content, .side-by-side-list-code {
+  width: 50%;
+}
+
+.side-by-side-list-code pre {
+  margin-left: 20px;
+  margin-top: -10px;
+}
+
+@media screen and (max-width: 700px) {
+  .side-by-side-list{
+    flex-direction: column;
+  }
+
+  .side-by-side-content, .side-by-side-list-code {
+    width: 100%;
+  }
+}

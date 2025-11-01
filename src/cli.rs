@@ -16,11 +16,11 @@ pub enum Commands {
     #[arg(name = "FILE", default_value = ".")]
     file: PathBuf,
 
-    #[arg(trailing_var_arg = true)]
-    args: Vec<String>,
-
     #[arg(short = 'b', long)]
     build: bool,
+
+    #[arg(trailing_var_arg = true)]
+    args: Vec<String>,
   },
   Test {
     #[arg(name = "FILE")]

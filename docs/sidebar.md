@@ -23,6 +23,14 @@
   * [Other Macros](macros/other-macros.md)
   * [Custom Macros](macros/custom-macros.md)
 
+* **Lulibs**
+  * [About Lulibs](lulib/README.md)
+  * [Serde lulib](lulib/serde.md)
+  * [KVDB lulib](lulib/kvdb.md)
+  * [Networking lulib](lulib/net.md)
+  * [Archives lulib](lulib/archives.md)
+  * [Threads lulib](lulib/threads.md)
+
 * **Stubs**
   * [About Stubs](stubs/README.md)
   * [UI Stub](stubs/ui.md)

@@ -3262,7 +3262,7 @@ end
                   }
                 }
 
-                decorators.push((decor_name, decor_args));
+                decorators.insert(0, (decor_name, decor_args));
               }
 
               (Token::Whitespace(_, _), _) => j += 1,

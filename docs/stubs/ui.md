@@ -108,16 +108,16 @@ To get started, you have to use the `lulu-ui` stub from [github](https://github.
       -- ...
       stubs {
         -- Windows binary
-        windows = "https://github.com/kevinJ045/lulu-ui-stub/releases/download/v0.1.34/lulu-ui.exe",
+        windows = "https://github.com/kevinJ045/lulu-ui-stub/releases/download/v0.1.35/lulu-ui.exe",
 
         -- Linux x86_64 bin
-        ["linux-x86_64"] = "https://github.com/kevinJ045/lulu-ui-stub/releases/download/v0.1.34/lulu-ui-linux-x86_64",
+        ["linux-x86_64"] = "https://github.com/kevinJ045/lulu-ui-stub/releases/download/v0.1.35/lulu-ui-linux-x86_64",
 
         -- Linux aarch64 bin (never tried this)
-        ["linux-aarch64"] = "https://github.com/kevinJ045/lulu-ui-stub/releases/download/v0.1.34/lulu-ui-linux-aarch64",
+        ["linux-aarch64"] = "https://github.com/kevinJ045/lulu-ui-stub/releases/download/v0.1.35/lulu-ui-linux-aarch64",
 
         -- Darwin Executable (never tried this either)
-        darwin = "https://github.com/kevinJ045/lulu-ui-stub/releases/download/v0.1.34/lulu-ui-darwin"
+        darwin = "https://github.com/kevinJ045/lulu-ui-stub/releases/download/v0.1.35/lulu-ui-darwin"
       }
       -- ...
     end
@@ -224,16 +224,17 @@ instance:into_root()
 ### Simple Usage:
 ```lua
 ui.VBox {
+  -- you can either use `children` or 
   children = {
     ui.Heading { text = "Settings" },
     ui.Separator(),
     ui.Checkbox { text = "Enable shadows", checked = true },
     ui.Slider { text = "Volume", value = 0.75 },
+    -- pass an array of elements to
+    -- automatically convert to: { children = {...} }
     ui.HBox {
-      children = {
-        ui.Button { text = "Apply" },
-        ui.Button { text = "Cancel" },
-      }
+      ui.Button { text = "Apply" },
+      ui.Button { text = "Cancel" },
     }
   }
 }
@@ -256,7 +257,7 @@ Now, let's render our elements through a function.
   end
 
   -- So, we make it into a component as such:
-  (self) @Component AppRoot =>
+  (self) @Component() AppRoot =>
     return Button { text = "Click Me!" }
   end
 
@@ -266,7 +267,7 @@ Now, let's render our elements through a function.
   -- If you are making the root component,
   -- you can just use `AutoRender` to auto
   -- render the component without calling it.
-  (self) @AutoRender @Component AppRoot =>
+  (self) @Component() @AutoRender AppRoot =>
     return Button { text = "Click Me!" }
   end
 end
@@ -278,7 +279,7 @@ States are simple value containers that let you change values dynamically from y
 
 #### Simple Data:
 ```lua
-(self) @AutoRender @Component AppRoot =>
+(self) @Component() @AutoRender AppRoot =>
   local clicked = State(0)
 
   return Button {
@@ -292,26 +293,22 @@ end
 
 #### Binding to input:
 ```lua
-(self) @AutoRender @Component AppRoot =>
+(self) @Component() @AutoRender AppRoot =>
   local inputText = State("val")
 
   return VBox {
-    children = {
-      Label { text = inputText },
-      Input { value = inputText }
-    }
+    Label { text = inputText },
+    Input { value = inputText }
   }
 end
 ```
 ```lua
-(self) @AutoRender @Component AppRoot =>
+(self) @Component() @AutoRender AppRoot =>
   local ch = State(false)
 
   return VBox {
-    children = {
-      Label { text = "This text will be hidden", inactive = ch },
-      Checkbox { checked = ch, text = "Hide text" }
-    }
+    Label { text = "This text will be hidden", inactive = ch },
+    Checkbox { checked = ch, text = "Hide text" }
   }
 end
 ```
@@ -321,9 +318,9 @@ end
 Instead of declaring each state in your main function, you can make it Component-Wide by using `StatedComponent` decorator.
 
 ```lua
-(self) @AutoRender @StatedComponent({
+(self) @Component() @StatedComponent({
   clicked = 0
-}) @Component AppRoot =>
+}) @AutoRender AppRoot =>
   return Button {
     text = self.clicked:format("Clicked: {}"),
     on_clicked = function()
@@ -338,16 +335,213 @@ end
 You may want static component properties, and for that you can use the `ComponentValues` decorator.
 
 ```lua
-(self) @AutoRender @StatedComponent({
+(self) @Component() @StatedComponent({
   selected = "red"
 }) @ComponentValues({
   colors = { red = "Red", blue = "Blue", green = "Green" }
-}) @Component AppRoot =>
+}) @AutoRender AppRoot =>
   return VBox {
-    children = {
-      Label { text = self.selected:inside(self.colors) },
-      Combobox { values = self.colors, selected = self.selected }
-    }
+    Label { text = self.selected:inside(self.colors) },
+    Combobox { values = self.colors, selected = self.selected }
   }
 end
+```
+
+## Custom Components as Elements
+
+Just as most Ui libraries, you can make quick reusable components using the `Component` decorator.
+
+```lua
+local (self, props) @Component() MyComponent =>
+  return VBox {
+    Label {
+      text = "My Component"
+    },
+    -- this way, you can pass the children to the next draw buffer.
+    -- in this case, the next draw buffer is VBox
+    props.children
+  }
+end
+
+(self) @Component() @AutoRender AppRoot =>
+  return VBox {
+    Header { text = "Components inside components" },
+    MyComponent {} -- this props is required!
+  }
+end
+```
+
+## Class Components
+
+If you would like to, you can use inheritance with classes and make class components. 
+
+```lua
+-- Simple class component, allows for inheritance.
+local class! @Component() AppRoot:Widget, {
+  build(){
+    return VBox {
+      Button { text = "Click Me!" }
+    }
+  }
+}
+-- or lml
+local class! @Component() AppRoot:Widget, {
+  build(){
+    return lml! {
+      <vbox>
+        <button text="Click Me!" />
+      </vbox>
+    }
+  }
+}
+
+-- Auto Render
+local class! @Component() @AutoRender AppRoot:Widget, {
+  build(){
+    return VBox {
+      Button { text = "Click Me!" }
+    }
+  }
+}
+
+-- State
+local class! @Component() @StatedComponent({
+  clicked = 0
+}) @AutoRender AppRoot:Widget, {
+  build(){
+    return Button {
+      text = clicked:format("Clicked: {}"),
+      on_clicked = function()
+        clicked:add(1)
+      end    
+    }
+  }
+}
+```
+
+## Component Prepare
+
+Before a component is built, you can run a `prepare` function that runs before the build of a component.
+
+```lua
+-- Class Components
+class! @Component() @StatedComponent({
+  loading = true
+}) AppRoot:Widget, {
+  prepare(props){
+    () async =>
+      sleep(1)
+      self.loading:set(false)
+    end
+  }
+  build(){
+    return VBox {
+      Spinner { inactive = self.loading:inverse() },
+      Label { text = "App Content", inactive = self.loading }
+    }
+  }
+}
+
+-- Function Components
+local (self) @Component() @UIOverride('prepare', function(self, props)
+  () async =>
+    sleep(1)
+    self.loading:set(false)
+  end
+end) @StatedComponent({
+  loading = true
+}) AppRoot =>
+  return VBox {
+    Spinner { inactive = self.loading:inverse() },
+    Label { text = "App Content", inactive = self.loading }
+  }
+end 
+
+-- For both
+(self, props) AppRoot:prepare =>
+  () async =>
+    sleep(1)
+    self.loading:set(false)
+  end
+end
+```
+
+## Rebuilds
+
+By default, everytime a state is changed the component is rebuilt. This is not necessary to update the states, but it can be useful for components that use the state values directly instead of mapping them. However, to disable rebuilds, you can `UIOverride('rebuild')`
+
+```lua
+-- Class Components
+class! @Component() @StatedComponent(...) AppRoot:Widget, {
+  -- this is an override
+  rebuild(){}
+  build(){
+    return ...
+  }
+}
+
+-- Function Components
+local (self)  @Component() @UIOverride('rebuild') @StatedComponent(...) AppRoot =>
+  return ...
+end 
+```
+
+This way, you override rebuild, and so now, everytime a state changes, `rebuild` will be called.
+
+To call the default rebuild, set `self.__built = nil` and it will still rebuild the component.
+
+## Styles
+
+Styling is component-based on some components, and global for some. Here is an example style:
+
+You can use colors as `c"#ffffffff"`.
+
+```lua
+Style {
+  style = {
+    spacing = {
+      button_padding = { 15, 5 },
+    },
+    visuals = {
+      panel_fill = c"#1e1e2e",
+      noninteractive = {
+        bg_fill = c"#181825",
+        weak_bg_fill = c"#181825",
+      },
+      inactive = {
+        bg_fill = c"#181825",
+        weak_bg_fill = c"#181825",
+        rounding = { 20, 20, 20, 20 }
+      },
+      active = {
+        bg_fill = c"#cba6f7",
+        weak_bg_fill = c"#cba6f7",
+        rounding = { 20, 20, 20, 20 }
+      },
+      open = {
+        bg_fill = c"#1e1e2e",
+        weak_bg_fill = c"#1e1e2e",
+        fg_stroke = {
+          width = 1.0,
+          color = c"#cdd6f4"
+        },
+        rounding = { 20, 20, 20, 20 }
+      },
+      hovered = {
+        bg_fill = c"#cba6f7",
+        weak_bg_fill = c"#cba6f7",
+        bg_stroke = {
+          width = 1.0,
+          color = c"#181825"
+        },
+        fg_stroke = {
+          width = 1.0,
+          color = c"#181825"
+        },
+        rounding = { 20, 20, 20, 20 }
+      }
+    }
+  },
+  children = {...}
+}
 ```

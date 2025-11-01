@@ -1,17 +1,18 @@
-local proc = spawn("ping -s 5 google.com")
+using {
+  lulib.clap
+}
 
--- write to stdin
-proc:write("foo\nbar\nfoo bar\n")
+local cmd = clap.Command({
+  name = "lulu",
+  version = "1.0",
+  about = "example"
+})
 
-proc:close_stdin()
+cmd:arg("file", { default = ".", help = "file" })
+  :flag("build", { short = "b", long = "build", help = "dd" })
+  :arg("into", { short = "i", required = false })
+  :arg("items*", { required = false, trailing = true })
 
--- read lines
-while true do
-  local line = proc:read()
-  if line then
-    print("stdout:", line)
-  end
-  local status = proc:wait_nonblocking()
-  if status then break end
-end
+local result = cmd:parse({ "dosmn", "-b", "-i sjjs", "fjfjf", "jfjfj", "djdjjd" })
 
+fprint(result)
