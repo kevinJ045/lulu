@@ -1,7 +1,7 @@
+using { lulib.threads }
 
-{
-  a,
-  b,
-  @dkdk(dd:ff)
-  c
-} -> @D(f:g) @F(g:f) C:g
+local t = threads.spawn(function()
+  threads.sleep(2)
+end)
+
+threads.join(t)

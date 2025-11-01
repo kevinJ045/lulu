@@ -30,6 +30,7 @@
   * [Networking lulib](lulib/net.md)
   * [Archives lulib](lulib/archives.md)
   * [Threads lulib](lulib/threads.md)
+  * [Clap lulib](lulib/clap.md)
 
 * **Stubs**
   * [About Stubs](stubs/README.md)

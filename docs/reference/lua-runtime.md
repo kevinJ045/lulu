@@ -10,6 +10,10 @@ Lulu provides a set of global functions and modules available to all your `.lua`
   - `command` (string): The command to run.
   - `inherit_stdio` (boolean): If `true`, the command will share the parent's stdin/stdout/stderr.
   - Returns the output of the command as a string.
+- **`spawn(command, inherit_stdio)`**: Spawns a shell command.
+  - `command` (string): The command to run.
+  - `inherit_stdio` (boolean): If `true`, the command will share the parent's stdin/stdout/stderr.
+  - Returns a IO buffer.
 
 ## Filesystem (FS)
 
@@ -45,17 +49,6 @@ A global module for handling JSON and YAML.
 - **`rand.from(min, max)`**: Returns a random integer between `min` and `max` (inclusive).
 - **`range(start, finish)`**: Returns a table containing a sequence of numbers from `start` to `finish`.
 - **`fprint(table)`**: A formatted print function for tables, useful for debugging.
-
-## Archives (`zip`, `tar`)
-
-- **`zip.create(output_path, files_table)`**: Creates a `.zip` archive.
-- **`zip.extract(archive_path, destination_path)`**: Extracts a `.zip` archive.
-- **`tar.create(output_path, files_table)`**: Creates a `.tar.gz` archive.
-- **`tar.extract(archive_path, destination_path)`**: Extracts a `.tar.gz` archive.
-
-## Networking (`net`)
-
-- **`net.http.request(url, method, body, headers)`**: Performs an HTTP request.
 
 ## Module Environment
 
