@@ -1807,31 +1807,21 @@ impl Compiler {
     let mut parent_name = None;
     let mut constructor_args: Vec<String> = Vec::new();
 
-    let mut buffer = decl_str.clone();
+    let buffer = decl_str.clone();
 
-    if let Some(idx) = buffer.find(':') {
-      class_name = buffer[..idx].trim().to_string();
-      buffer = buffer[idx + 1..].trim().to_string();
-
-      if let Some(paren_idx) = buffer.find('(') {
-        parent_name = Some(buffer[..paren_idx].trim().to_string());
-        let args_str = buffer[paren_idx + 1..buffer.len() - 1].trim();
-        if !args_str.is_empty() {
-          constructor_args = args_str.split(',').map(|s| s.trim().to_string()).collect();
-        }
-      } else {
-        parent_name = Some(buffer.trim().to_string());
+    if let Some(paren_idx) = buffer.find('(') {
+      class_name = buffer[..paren_idx].trim().to_string();
+      let args_str = buffer[paren_idx + 1..buffer.len() - 1].trim();
+      if !args_str.is_empty() {
+        constructor_args = args_str.split(',').map(|s| s.trim().to_string()).collect();
       }
     } else {
-      if let Some(paren_idx) = buffer.find('(') {
-        class_name = buffer[..paren_idx].trim().to_string();
-        let args_str = buffer[paren_idx + 1..buffer.len() - 1].trim();
-        if !args_str.is_empty() {
-          constructor_args = args_str.split(',').map(|s| s.trim().to_string()).collect();
-        }
-      } else {
-        class_name = buffer;
-      }
+      class_name = buffer;
+    }
+
+    if let Some(idx) = class_name.find(':') {
+      parent_name = Some(class_name[idx + 1..].trim().to_string());
+      class_name = class_name[..idx].trim().to_string();
     }
 
     let mut self_assignments = String::new();

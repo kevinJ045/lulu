@@ -73,3 +73,30 @@ local {
   fprint(res.into_many(User))
 end
 ```
+
+### Http Server
+
+A simple http listener that listens async.
+
+- **`net.http.serve`**: `(string, function(Request) -> Response) -> nil` 
+
+```lua
+net.http.serve("0.0.0.0:8000", function(req)
+  return Response {
+    body = "Hello" -- will be turned to bytes in rust
+  }
+end)
+```
+
+## TCP
+
+- **`net.tcp.connect`**: `(addr: string) -> { read, write, close }` 
+- **`net.tcp.listen`**: `(addr: string) -> { accept() -> { read, write, close } }` 
+
+## UDP
+
+- **`net.tcp.bind`**: `(addr: string) -> { send_to(addr, data), recv_from(size: number) -> data }` 
+
+## Websocket
+
+- **`net.websocket.connect`**: `(url: string) -> { read, write, close }` 
