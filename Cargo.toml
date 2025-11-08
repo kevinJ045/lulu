@@ -35,3 +35,7 @@ axum = "0.8.6"
 futures-util = "0.3.31"
 hyper = "1.7.0"
 sled = "0.34.7"
+
+battery = "0.7.8"
+sysinfo = "0.37.2"
+tui = "0.19.0"

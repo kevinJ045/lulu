@@ -1,7 +1,10 @@
-using { lulib.threads }
+using {
+  lulib.minifb
+}
 
-local t = threads.spawn(function()
-  threads.sleep(2)
-end)
+local win = minifb.window("some", 200, 300)
 
-threads.join(t)
+win:draw_line(10, 10, 100, 50, 0xFF0000)
+win:draw_circle(50, 50, 20, 0x00FF00)
+win:draw_poly({{10,10}, {50,80}, {90,10}}, 0x0000FF)
+win:update()

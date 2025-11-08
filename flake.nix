@@ -56,7 +56,9 @@
               pkg-config
             ];
 
-            buildInputs = [ ];
+            buildInputs = with pkgs; [
+              luajit
+            ];
 
           };
         }
