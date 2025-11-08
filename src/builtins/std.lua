@@ -34,11 +34,40 @@ function fprint(...)
   print(unpack(args))
 end
 
+function ns_inherit_from(...)
+  local parents = { ... }
+
+  return setmetatable({}, {
+    __index = function(_, key)
+      if key == "__gns" then
+        return true
+      end
+
+      for _, parent in ipairs(parents) do
+        if parent ~= nil then
+          local value = parent[key]
+          if value ~= nil then
+            return value
+          end
+        end
+      end
+
+      return rawget(_G, key)
+    end
+  })
+end
+
 function namespace(tbl)
   return function(chunk)
     chunk = chunk or function() end
-    setfenv(chunk, setmetatable(tbl or {}, { __index = _G }))
-    return chunk(tbl)
+    local t = tbl
+    if tbl ~= nil and tbl.__gns then
+      t = tbl
+    else
+      t = setmetatable(tbl or {}, { __index = _G })
+    end
+    setfenv(chunk, t)
+    return chunk(tbl) or tbl
   end
 end
 

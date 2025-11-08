@@ -591,6 +591,34 @@ macro_rules! check_token {
   };
 }
 
+macro_rules! pass_until_block_end {
+  ($tokens:expr, $i:expr, $depth:expr) => {
+    let mut block_depth = 0;
+    while $i < $tokens.len() {
+      match $tokens[$i] {
+        Token::Identifier(ref id, _)
+          if id == "function" || id == "while" || id == "for" || id == "until" || id == "repeat" || id == "do" || id == "if" =>
+        {
+          block_depth += 1
+        }
+        Token::Symbol(ref sym, _) if sym == "=>" =>
+        {
+          block_depth += 1
+        }
+        Token::Identifier(ref id, _) if id == "end" => {
+          if block_depth == $depth {
+            break;
+          } else {
+            block_depth -= 1;
+          }
+        }
+        _ => {}
+      }
+      $i += 1;
+    }  
+  };
+}
+
 fn find_braces(s: &str) -> Vec<(usize, usize)> {
   let mut stack = Vec::new();
   let mut positions = Vec::new();
@@ -625,7 +653,10 @@ impl Compiler {
 
     defs.insert("OS".to_string(), std::env::consts::OS.to_lowercase());
     defs.insert("ARCH".to_string(), std::env::consts::ARCH.to_lowercase());
-    defs.insert("FAMILY".to_string(), std::env::consts::FAMILY.to_lowercase());
+    defs.insert(
+      "FAMILY".to_string(),
+      std::env::consts::FAMILY.to_lowercase(),
+    );
 
     Compiler {
       macros: MacroRegistry::new(),
@@ -767,7 +798,7 @@ impl Compiler {
 
       j += 1;
 
-      return Some((j, name, modn))
+      return Some((j, name, modn));
     }
 
     None
@@ -867,7 +898,9 @@ impl Compiler {
           {
             j += 1;
 
-            if let Some((j, name, modn)) = self.process_lulib_import(j, &tokens, path.clone(), conf.clone()) {
+            if let Some((j, name, modn)) =
+              self.process_lulib_import(j, &tokens, path.clone(), conf.clone())
+            {
               result.extend(vec![
                 Token::Identifier("using ".to_string(), 1),
                 Token::Symbol("{ ".to_string(), 1),
@@ -889,7 +922,9 @@ impl Compiler {
           i += 1;
         }
         Token::Identifier(ident, _) if ident == "lulib" => {
-          if let Some((j, name, modn)) = self.process_lulib_import(i + 1, &tokens, path.clone(), conf.clone()) {
+          if let Some((j, name, modn)) =
+            self.process_lulib_import(i + 1, &tokens, path.clone(), conf.clone())
+          {
             result.extend(vec![
               Token::Identifier("lulib".to_string(), 1),
               Token::Symbol("(".to_string(), 1),
@@ -3149,6 +3184,86 @@ end
             i += 1;
           }, result.push_str(name));
         }
+        Token::Identifier(name, _) if name == "in" => {
+          check_token!(&tokens, i, 1, true, Token::Identifier(ident, _) if ident == "do" => {
+            let mut idx = i + 1;
+
+            while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) {
+              idx += 1;
+            }
+
+            idx += 1;
+
+            i = idx;
+
+            result.push_str("(function()");
+            pass_until_block_end!(tokens, idx, 0);
+            hooks_int.insert(idx, ")()".to_string());
+          }, check_token!(&tokens, i, 1, true, Token::Identifier(ident, _) if ident == "if" => {
+            let mut idx = i + 1;
+
+            i = idx;
+
+            result.push_str("(function()\n");
+            pass_until_block_end!(tokens, idx, 1);
+            hooks_int.insert(idx, "\nend)()".to_string());
+          }, check_token!(&tokens, i, 1, true, Token::Identifier(ident, _) if ident == "local" => {
+            let mut idx = i + 1;
+
+            while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) {
+              idx += 1;
+            }
+            
+            idx += 1;
+            
+            while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) {
+              idx += 1;
+            }
+
+            let name = tokens[idx].clone();
+            let mut p = "nil".to_string();
+
+            idx += 1;
+
+            let mut j = idx;
+
+            while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+              j += 1;
+            }
+
+            while j < tokens.len() && matches!(&tokens[j], Token::Identifier(id, _) if id == "and") {
+              j += 1;
+              while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+                j += 1;
+              }
+              if j < tokens.len() && matches!(&tokens[j], Token::Identifier(_, _)) {
+                if p == "nil" {
+                  p = "".to_string();
+                }
+                if p != "" {
+                  p.push_str(",");
+                }
+                p.push_str(get_token_string(&tokens[j]).unwrap());
+                j += 1;
+                idx = j;
+
+                while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+                  j += 1;
+                }
+              } else {
+                break;
+              }
+            }
+
+            i = idx;
+
+            result.push_str(&format!("local {} = namespace(ns_inherit_from({p}))(function(self)\n", get_token_string(&name).unwrap()));
+
+            pass_until_block_end!(tokens, idx, 0);
+            hooks_int.insert(idx, ")".to_string());
+            
+          }, result.push_str(name))));
+        }
         Token::Identifier(name, _) => {
           result.push_str(name);
         }
@@ -3164,6 +3279,17 @@ end
         Token::Symbol(sym, _) if sym == "!" => {
           check_token!(&tokens, i, 1, false, Token::Symbol(sym2, _) if sym2 == "=" => {
             result.push('~');
+          }, result.push_str(sym));
+        }
+        Token::Symbol(sym, _) if sym == "+" || sym == "-" || sym == "*" || sym == "/" => {
+          check_token!(&tokens, i, 1, false, Token::Symbol(sym2, _) if sym2 == "=" => {
+            let mut j = i - 1;
+            while j > 0 && matches!(tokens[j], Token::Whitespace(_, _)) {
+              j -= 1;
+            }
+            if j > 0 && matches!(&tokens[j], Token::Identifier(_, _)) {
+              hooks_int.insert(i + 1, format!(" {} {}", get_token_string(&tokens[j]).unwrap(), sym));
+            }
           }, result.push_str(sym));
         }
         Token::Symbol(sym, _) if sym == "&" => {
@@ -3365,29 +3491,7 @@ end
 
                 if decorators.len() > 0 {
                   let mut k = j + 1;
-                  let mut block_depth = 0;
-                  while k < tokens.len() {
-                    match tokens[k] {
-                      Token::Identifier(ref id, _)
-                        if id == "function" || id == "do" || id == "if" =>
-                      {
-                        block_depth += 1
-                      }
-                      Token::Symbol(ref sym, _) if sym == "=>" =>
-                      {
-                        block_depth += 1
-                      }
-                      Token::Identifier(ref id, _) if id == "end" => {
-                        if block_depth == 0 {
-                          break;
-                        } else {
-                          block_depth -= 1;
-                        }
-                      }
-                      _ => {}
-                    }
-                    k += 1;
-                  }
+                  pass_until_block_end!(tokens, k, 0);
 
                   let mut hook_close = String::new();
                   for (decor, args) in decorators.iter().rev() {
@@ -3433,7 +3537,13 @@ end
                     }
                     deco_str.push_str(&format!(
                       "({}, {}, {:?})",
-                      if parent.is_empty() { "empty_class()" } else { "self" }, param_name, param_name
+                      if parent.is_empty() {
+                        "empty_class()"
+                      } else {
+                        "self"
+                      },
+                      param_name,
+                      param_name
                     ));
                   }
                 }
