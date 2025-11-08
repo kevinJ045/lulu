@@ -1,10 +1,33 @@
 using {
-  lulib.minifb
+  lulib.tui,
+  lulib.threads
 }
 
-local win = minifb.window("some", 200, 300)
+local app = tui.app()
 
-win:draw_line(10, 10, 100, 50, 0xFF0000)
-win:draw_circle(50, 50, 20, 0x00FF00)
-win:draw_poly({{10,10}, {50,80}, {90,10}}, 0x0000FF)
-win:update()
+
+async(function()
+
+  while app:is_open() do
+    app:draw(tui.layout({
+      direction = "vertical",
+      constraints = { "100%" },
+      children = {
+        tui.table({
+          "name", "id", "age", "personality"
+        }, {
+          {"someone", 1, 3, "dd"},
+          {"onesome", 2, 5, "ddd"},
+        })
+      }
+    }))
+    local k = app:poll()
+    if k and k.type == "key" then
+      if k.key == "q" then
+        app:close()
+      end
+    end
+    coroutine.yield()
+  end
+end)
+

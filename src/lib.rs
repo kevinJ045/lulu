@@ -2,13 +2,14 @@ pub mod bundle;
 pub mod compiler;
 pub mod conf;
 pub mod lml;
-pub mod lulu;
+pub mod core;
 pub mod ops;
 pub mod package_manager;
 pub mod project;
 pub mod resolver;
 pub mod util;
 pub mod sourcemap;
+pub mod lulibs;
 
 pub use tokio;
 pub use mlua;

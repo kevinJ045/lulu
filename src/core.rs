@@ -1,6 +1,6 @@
 use crate::compiler::Compiler;
 use crate::conf::{LuluConf, find_lulu_conf, load_lulu_conf};
-use crate::ops::{self, register_consts};
+use crate::ops::core::{register_consts, register_ops};
 use mlua::{Lua, chunk};
 use std::path::PathBuf;
 
@@ -104,7 +104,7 @@ impl Lulu {
       }
     }
 
-    ops::register_ops(&self.lua, self)?;
+    register_ops(&self.lua, self)?;
 
     self
       .lua

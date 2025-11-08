@@ -854,6 +854,13 @@ setmetatable(lulib, {
     end
   end,
   __index = function(tbl, key)
+    if key == "from" then
+      return function(a)
+        return function()
+          return require_cached(a, false)
+        end
+      end
+    end
     return function()
       local tbl = request_env_load(key)
       if type(tbl) == "table" and tbl.__include then

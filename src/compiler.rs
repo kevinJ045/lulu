@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{conf::LuluConf, ops::STD_MODULES};
+use crate::{conf::LuluConf, ops::std::STD_MODULES};
 
 #[derive(Debug, Clone)]
 pub struct MacroDefinition {

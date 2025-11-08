@@ -1,5 +1,5 @@
 use crate::conf::{conf_to_string, load_lulu_conf_from_bytecode};
-use crate::lulu::{LuLib, Lulu, LuluModSource};
+use crate::core::{LuLib, Lulu, LuluModSource};
 use crate::util::lua_to_bytecode;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};

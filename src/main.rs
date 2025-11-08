@@ -1,8 +1,8 @@
 use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle, set_exec_path};
 use crate::cli::{CacheCommand, Cli, Commands};
 use crate::conf::load_lulu_conf;
-use crate::lulu::Lulu;
-use crate::ops::{register_consts, TOK_ASYNC_HANDLES};
+use crate::core::Lulu;
+use crate::ops::{core::register_consts, TOK_ASYNC_HANDLES};
 use crate::package_manager::PackageManager;
 use clap::Parser;
 use mlua::Result;
@@ -16,12 +16,13 @@ mod cli;
 pub mod compiler;
 pub mod conf;
 mod lml;
-pub mod lulu;
+pub mod core;
 mod ops;
 mod package_manager;
 mod project;
 mod resolver;
 mod util;
+mod lulibs;
 
 macro_rules! into_exec_command {
   ($lua:expr, $env:expr, (), $cmd:expr $(, $arg:expr)*) => {{
@@ -62,7 +63,7 @@ macro_rules! into_exec_command {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<()> {
-  crate::ops::init_std_modules();
+  crate::ops::std::init_std_modules();
   if let Some(mods) = bundle::load_embedded_scripts() {
     handle_error!(
       run_bundle(
