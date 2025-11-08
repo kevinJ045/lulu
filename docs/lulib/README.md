@@ -56,11 +56,25 @@ using {
 }
 ```
 
+Following this rule, you can also dynamically include lulibs as:
+```lua
+using {
+  -- this will cahce the url, and register
+  -- the lulib name into the current global
+  lulib.from "github:username/repo"
+}
+
+repo.do_something()
+
+--- or you can use require_cached
+local repo = require_cached("github:username/repo")
+```
+
 ## Loading modules into a lulib
 
 You can load modules into a lulib from files in 3 ways.
-- **Module Indexing**: By mapping each module inside of your `lulu.conf.lua` as mentioned in [the config](../reference/configuration.md#mods), you can resolve each module at entry and add them to the stack.
-- **Macro importmap**: You can use the [`import!` macro](../macros/other-macros.md#import) to load a module dynamically at compile time, this way each imported module would be collected by the macro recursively.
+- **Module Indexing**: By mapping each module inside of your `lulu.conf.lua` as mentioned in [the config](/reference/configuration.md#mods), you can resolve each module at entry and add them to the stack.
+- **Macro importmap**: You can use the [`import!` macro](/macros/other-macros.md#import) to load a module dynamically at compile time, this way each imported module would be collected by the macro recursively.
 <li>
   <div class="side-by-side-list">
 
