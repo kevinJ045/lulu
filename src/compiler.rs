@@ -3302,6 +3302,10 @@ end
                 Token::Identifier(name, _) => {
                   lhs_parts.push(name.clone());
                   j = j.saturating_sub(1);
+
+                  if !matches!(&tokens[j], Token::Symbol(dot, _) if dot == "." ) {
+                    break
+                  }
                 }
                 Token::Symbol(dot, _) if dot == "." => {
                   lhs_parts.push(dot.clone());

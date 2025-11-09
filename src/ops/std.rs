@@ -267,4 +267,6 @@ pub fn init_std_modules() {
   crate::lulibs::threads::into_module();
 
   crate::lulibs::tui::into_module();
+
+  crate::lulibs::minifb::into_module();
 }

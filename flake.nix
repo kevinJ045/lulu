@@ -77,6 +77,14 @@
               rustfmt
               luajit
             ];
+
+            shellHook = ''
+            export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [
+              pkgs.libxkbcommon
+              pkgs.wayland
+              pkgs.wayland-protocols
+            ]}:$LD_LIBRARY_PATH
+            '';
           };
         }
       );
