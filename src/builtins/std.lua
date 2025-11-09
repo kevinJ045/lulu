@@ -57,6 +57,31 @@ function ns_inherit_from(...)
   })
 end
 
+local function mkproxy(parent)
+  local proxy = {}
+
+  setmetatable(proxy, {
+    __index = function(_, key)
+      local val = parent[key]
+
+      if type(val) == "function" then
+        return function(...)
+          local result = val(parent, ...)
+          if result == parent then
+            return proxy
+          else
+            return result
+          end
+        end
+      end
+
+      return val
+    end
+  })
+
+  return proxy
+end
+
 function namespace(tbl)
   return function(chunk)
     chunk = chunk or function() end
@@ -67,7 +92,9 @@ function namespace(tbl)
       t = setmetatable(tbl or {}, { __index = _G })
     end
     setfenv(chunk, t)
-    return chunk(tbl) or tbl
+    local r = chunk(tbl) or tbl
+    r.__static = mkproxy(r)
+    return r
   end
 end
 
@@ -87,6 +114,7 @@ function make_enum(name)
   
   e.__is_enum = true
   e.__name = name or ""
+  e.__static = mkproxy(e)
   
   return e
 end
@@ -180,6 +208,8 @@ function make_class(class_raw, parent)
   end
 
   setmetatable(class, class_meta)
+
+  class.__static = mkproxy(class)
   
   return class
 end

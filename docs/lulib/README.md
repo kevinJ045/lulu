@@ -66,7 +66,7 @@ using {
 
 repo.do_something()
 
---- or you can use require_cached
+--- or you can use require_cached/require_cached_async
 local repo = require_cached("github:username/repo")
 ```
 

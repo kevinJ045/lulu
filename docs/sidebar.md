@@ -11,6 +11,7 @@
   * [Helper Classes](reference/helper-classes.md)
   * [Shorthand Expressions](reference/shorthand.md)
   * [Testing](reference/testing.md)
+  * [Costs](reference/costs.md)
 
 * **Macros**
   * [Introduction](macros/README.md)

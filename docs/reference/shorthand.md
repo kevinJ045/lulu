@@ -313,6 +313,113 @@ local enum! Token, {
 </tr>
 </table>
 
+## Namespace shorthand
+
+You can use any table as a namespace in lulu like this:
+```lua
+
+local my_table = {
+  x = 10
+}
+
+namespace(my_table)(function(this)
+  print(x)
+end)
+
+-- or
+
+() @namespace(my_table) =>
+  print(x)
+end
+```
+
+However, you can simply do this for a dynamic, contained, multi-namespaced environment.
+
+```lua
+in local new_namespace do
+  name = 1
+end
+
+-- access it as:
+print(new_namespace::name)
+
+-- to use multiple namespaces:
+local ns = {
+  x = 1
+}
+
+local ns2 = {
+  y = 2
+}
+
+in local my_namespace and ns and ns2 do
+  print(x, y) -- 1, 2
+
+  y = y + 10
+end
+
+print(ns2.y) -- 2
+print(my_namespace::y) -- 12
+
+-- quick namespaces
+in local _ and ns do
+  -- this is if you
+  -- are only using
+  -- namespaces and
+  -- do not want to
+  -- create a new one
+  print(f"x is {x}")
+end
+```
+## Expression shorthands
+
+In lua, you can't have blocks where a value would go. In Lulu, you can as such:
+
+```lua
+
+local myval = in do
+  -- you can do whatever you want here,
+  local my_sub_val = "something"
+  return my_sub_val
+end
+
+-- quick ifs
+
+local myval = in if true then
+  return "foo"
+else
+  return "bar"
+end
+
+-- or
+print(in if true then ... else ... end)
+```
+
+## Operation shorthands
+
+In lua, you can't use `+=`, `-=`, `*-`, `/=` and `!=`. But lulu has the sugar to allow for these.
+
+```lua
+local x = 10
+
+x += 2
+x -= 2
+x *= 2
+x /= 2
+
+if x != 20 then
+  print(x) -- 10
+end
+
+-- works in objects too:
+
+local o = { x = 10 }
+
+o.x += 10
+
+print(o.x) -- 20
+```
+
 ## String Formatter
 
 Format strings dynamically using embedded Lua expressions with `f"..."` syntax:

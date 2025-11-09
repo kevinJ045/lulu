@@ -33,15 +33,6 @@ A global module for regular expressions.
 - **`re.match(pattern, text)`**: Returns a table of capture groups from the first match.
 - **`re.replace(pattern, text, replacement)`**: Replaces matches in the text. The `replacement` can be a string (e.g., `"$0 $1"`) or a function that receives capture groups as arguments.
 
-## Serialization (`serde`)
-
-A global module for handling JSON and YAML.
-
-- **`serde.json.encode(table)`**: Converts a Lua table to a JSON string.
-- **`serde.json.decode(string)`**: Converts a JSON string to a Lua table.
-- **`serde.yaml.encode(table)`**: Converts a Lua table to a YAML string.
-- **`serde.yaml.decode(string)`**: Converts a YAML string to a Lua table.
-
 ## Cryptography & Utilities
 
 - **`crypto.sha256(string)`**: Computes the SHA-256 hash of a string.
@@ -57,3 +48,15 @@ Within each module, Lulu also provides a few special variables:
 - **`mod`**: A table containing information about the current module, including `mod.name` and `mod.conf`.
 - **`current_path`**: The path of the currently executing script.
 - **`lookup_dylib(name)`**: Finds a dynamic library in the project's `.lib` directory or the system path.
+
+## Lulu cache manager
+
+- **`setup_downloader(options)`**: Sets up a package manager instance to let you download things.
+  - **`format`**: (`^D ^N ^P ^C kb / ^T kb`) The format of the downloader.
+  - **`download_text`**: (`Downloading`) The prefix of the downloader.
+  - **`progressbar_size`**: (`10`) The size of the downloader progressbar.
+  - **`progressbar_colors`**: (`{r,g,b}, {r,g,b}`) Two colors for the progressbar gradient.
+- **`async download_file(url)`**: Downloads the file into a cache and gives you the `cache` folder. If cached, won't download.
+- **`async download_uncached(url)`**: Same as `download_file` but will download regardless of being in cache.
+- **`require_cached(url)`**: Dynamically include a lulib from url instead of adding it [`dependencies`](/reference/configuration.md#dependencies).
+  

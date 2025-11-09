@@ -57,7 +57,7 @@ a:hover {
   padding: 2rem 1.5rem 1.5rem 1.5rem;
   position: relative;
   margin: 1.5em 0;
-  overflow: hidden;
+  overflow-y: hidden;
 }
 .markdown-section pre code {
   font-size: 14px !important;

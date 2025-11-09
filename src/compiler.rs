@@ -478,10 +478,11 @@ pub fn tokenize(input: &str) -> Vec<Token> {
   tokens
 }
 
-fn get_token_string(tok: &Token) -> Option<&String> {
+fn get_token_string(tok: &Token) -> Option<String> {
   match tok {
-    Token::String(s, _) => Some(s),
-    Token::Identifier(s, _) => Some(s),
+    Token::String(s, _) => Some(s.clone()),
+    Token::Identifier(s, _) => Some(s.clone()),
+    Token::Symbol(s, _) => Some(s.clone()),
     _ => None,
   }
 }
@@ -1183,7 +1184,7 @@ impl Compiler {
     } else if macro_name == "import" {
       let mut cargs = args.clone();
       let cpath = get_token_string(&args[1][0]).unwrap();
-      let name = crate::util::normalize_name(cpath);
+      let name = crate::util::normalize_name(&cpath);
 
       // f = function
       // idk why i name things weird
@@ -1204,7 +1205,7 @@ impl Compiler {
       )
     } else if macro_name == "include_bytes" {
       let cpath = get_token_string(&args[0][0]).unwrap();
-      let name = format!("bytes://{}", crate::util::normalize_name(cpath));
+      let name = format!("bytes://{}", crate::util::normalize_name(&cpath));
 
       self
         .importmap
@@ -3243,9 +3244,8 @@ end
                 if p != "" {
                   p.push_str(",");
                 }
-                p.push_str(get_token_string(&tokens[j]).unwrap());
+                p.push_str(&get_token_string(&tokens[j]).unwrap());
                 j += 1;
-                idx = j;
 
                 while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
                   j += 1;
@@ -3255,9 +3255,16 @@ end
               }
             }
 
+            if j < tokens.len() && matches!(&tokens[j], Token::Identifier(id, _) if id == "do") {
+              idx = j + 1;
+            } else {
+              panic!("do expected after the use of namespace shorthand")
+            }
+
             i = idx;
 
-            result.push_str(&format!("local {} = namespace(ns_inherit_from({p}))(function(self)\n", get_token_string(&name).unwrap()));
+            let n = get_token_string(&name).unwrap();
+            result.push_str(&format!("{}namespace(ns_inherit_from({p}))(function(self)\n", if n == "_" { "".to_string() } else { format!("local {} = ", n) }));
 
             pass_until_block_end!(tokens, idx, 0);
             hooks_int.insert(idx, ")".to_string());
@@ -3284,11 +3291,32 @@ end
         Token::Symbol(sym, _) if sym == "+" || sym == "-" || sym == "*" || sym == "/" => {
           check_token!(&tokens, i, 1, false, Token::Symbol(sym2, _) if sym2 == "=" => {
             let mut j = i - 1;
-            while j > 0 && matches!(tokens[j], Token::Whitespace(_, _)) {
-              j -= 1;
+            let mut lhs_parts = Vec::new();
+
+            while j > 0 {
+              match &tokens[j] {
+                Token::Whitespace(_, _) => {
+                  j -= 1;
+                  continue;
+                }
+                Token::Identifier(name, _) => {
+                  lhs_parts.push(name.clone());
+                  j = j.saturating_sub(1);
+                }
+                Token::Symbol(dot, _) if dot == "." => {
+                  lhs_parts.push(dot.clone());
+                  j = j.saturating_sub(1);
+                }
+                _ => break,
+              }
             }
-            if j > 0 && matches!(&tokens[j], Token::Identifier(_, _)) {
-              hooks_int.insert(i + 1, format!(" {} {}", get_token_string(&tokens[j]).unwrap(), sym));
+
+            lhs_parts.reverse();
+
+            let lhs = lhs_parts.join("");
+
+            if !lhs.is_empty() {
+              hooks_int.insert(i + 1, format!(" {} {}", lhs, sym));
             }
           }, result.push_str(sym));
         }
@@ -3319,6 +3347,12 @@ end
               result.push_str(format!("ptr_deref({})", current_token).as_str());
               i += 1;
             });
+          }, result.push_str(sym));
+        }
+        Token::Symbol(sym, _) if sym == ":" => {
+          check_token!(&tokens, i, 1, false, Token::Symbol(symb, _) if symb == ":" => {
+            result.push_str(".__static.");
+            i += 1;
           }, result.push_str(sym));
         }
         Token::Symbol(sym, _) => {
@@ -3397,11 +3431,12 @@ end
             j += 1;
           }
 
-          if j < tokens.len() && matches!(&tokens[j], Token::Symbol(s, _) if s == ":") {
+          if j < tokens.len() && matches!(&tokens[j], Token::Symbol(s, _) if s == ":" || s == ".") {
+            let s = get_token_string(&tokens[j]).unwrap_or(":".to_string());
             if j < tokens.len() && matches!(&tokens[j + 1], Token::Identifier(i, _) if i != "end") {
               let parent_name = get_token_string(&tokens[j + 1]).unwrap();
-              parent = name.clone();
-              name = format!("{}:{}", name, parent_name);
+              if s == ":" { parent = name.clone(); }
+              name = format!("{}{}{}", name, s, parent_name);
               j += 2;
             }
           }
