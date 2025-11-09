@@ -6,5 +6,4 @@ pub mod net;
 pub mod threads;
 pub mod kv;
 pub mod serialize;
-pub mod tui;
-pub mod minifb;
+pub mod console;

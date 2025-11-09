@@ -31,16 +31,19 @@ flate2 = "1.1.4"
 tar = "0.4.42"
 tokio-rustls = "0.26.4"
 tokio-tungstenite = "0.28.0"
-axum = "0.8.6"
 futures-util = "0.3.31"
+http-body-util = "0.1.2"
 hyper = "1.7.0"
+hyper-util = { version = "0.1.17", features = ["full"] }
 sled = "0.34.7"
 
 battery = "0.7.8"
 sysinfo = "0.36.1"
-tui = "0.19.0"
 crossterm = "0.25"
 
-minifb = { version = "0.28", default-features = false, features = ["dlopen", "wayland"] }
-fontdue = "0.9.3"
-image = "0.25.6"
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

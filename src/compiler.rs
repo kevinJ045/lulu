@@ -598,7 +598,7 @@ macro_rules! pass_until_block_end {
     while $i < $tokens.len() {
       match $tokens[$i] {
         Token::Identifier(ref id, _)
-          if id == "function" || id == "while" || id == "for" || id == "until" || id == "repeat" || id == "do" || id == "if" =>
+          if id == "function" || id == "do" || id == "if" =>
         {
           block_depth += 1
         }

@@ -1,20 +1,19 @@
 use std::sync::{Arc};
-use axum::Router;
-use axum::http::{HeaderName, HeaderValue};
-use axum::routing::any;
+use hyper::body::{Bytes};
+use http_body_util::BodyExt;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Request, Response, StatusCode};
+use hyper_util::rt::{TokioIo};
+use http_body_util::Full;
+use hyper::http::{HeaderName, HeaderValue};
 use hyper::HeaderMap;
 use reqwest::{Client, Method};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex as TokioMutex;
-use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Message};
-use axum::{
-  extract::{Request, State},
-  http::StatusCode,
-  response::{IntoResponse, Response},
-};
 use futures_util::{SinkExt, StreamExt};
 use crate::lulibs::bytes::LuluByteArray;
 use crate::lulibs::threads::TOK_ASYNC_HANDLES;
@@ -22,6 +21,7 @@ use crate::ops::std::create_std_module;
 use std::collections::HashMap;
 use mlua::Error as LuaError;
 use std::net::SocketAddr;
+use std::convert::Infallible;
 
 #[derive(Clone)]
 pub struct LuluTcpStream {
@@ -200,33 +200,77 @@ impl mlua::UserData for LuluWebSocket {
   }
 }
 
-pub struct ServerRequest {
-  pub req: Request,
-  pub resp_tx: oneshot::Sender<Response>,
+#[derive(Debug)]
+struct ServeError(String);
+impl std::fmt::Display for ServeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl std::error::Error for ServeError {}
+
+fn to_serve_error<E: std::fmt::Display>(e: E) -> ServeError {
+    ServeError(e.to_string())
 }
 
-pub async fn axum_handler(State(req_tx): State<mpsc::Sender<ServerRequest>>, req: Request) -> Response {
-  let (resp_tx, resp_rx) = oneshot::channel();
-  let server_req = ServerRequest { req, resp_tx };
+async fn handle_request(
+    lua: Arc<mlua::Lua>,
+    handler_key: Arc<mlua::RegistryKey>,
+    req: Request<hyper::body::Incoming>,
+) -> Result<Response<Full<Bytes>>, ServeError> {
+    let handler = lua.registry_value::<mlua::Function>(&handler_key).map_err(to_serve_error)?;
+    let (parts, body) = req.into_parts();
+    let body_bytes = body.collect().await.map_err(to_serve_error)?.to_bytes();
 
-  if req_tx.send(server_req).await.is_err() {
-    return (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      "Request handler has disconnected",
-    )
-      .into_response();
-  }
+    let req_table = lua.create_table().map_err(to_serve_error)?;
+    req_table.set("method", parts.method.to_string()).map_err(to_serve_error)?;
+    let uri = parts.uri.to_string();
+    let host = parts
+        .headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    req_table.set("host", host).map_err(to_serve_error)?;
+    req_table.set("uri", uri).map_err(to_serve_error)?;
 
-  match resp_rx.await {
-    Ok(resp) => resp,
-    Err(e) => (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      format!("Request handler failed to respond: {e}"),
-    )
-      .into_response(),
-  }
+    let headers_table = lua.create_table().map_err(to_serve_error)?;
+    for (k, v) in parts.headers.iter() {
+        headers_table.set(k.to_string(), v.to_str().unwrap_or("")).map_err(to_serve_error)?;
+    }
+    req_table.set("headers", headers_table).map_err(to_serve_error)?;
+    req_table.set(
+        "body",
+        LuluByteArray {
+            bytes: body_bytes.to_vec(),
+        },
+    ).map_err(to_serve_error)?;
+
+    let resp_table: mlua::Table = handler.call_async(req_table).await.map_err(to_serve_error)?;
+    
+    let status: u16 = resp_table.get("status").unwrap_or(200);
+    let body: mlua::Value = resp_table.get("body").unwrap_or(mlua::Value::Nil);
+    let headers: HashMap<String, String> = resp_table.get("headers").unwrap_or_default();
+
+    let mut resp_builder = Response::builder()
+        .status(StatusCode::from_u16(status).map_err(to_serve_error)?)
+        .header("x-powered-by", "Lulu");
+
+    for (k, v) in headers {
+        resp_builder = resp_builder.header(
+            HeaderName::from_bytes(k.as_bytes()).map_err(to_serve_error)?,
+            HeaderValue::from_str(&v).map_err(to_serve_error)?,
+        );
+    }
+
+    let body_bytes = match body {
+        mlua::Value::String(s) => s.as_bytes().to_vec(),
+        mlua::Value::UserData(ud) => ud.borrow::<LuluByteArray>().map_err(to_serve_error)?.bytes.clone(),
+        _ => Vec::new(),
+    };
+
+    let resp = resp_builder.body(Full::new(Bytes::from(body_bytes))).map_err(to_serve_error)?;
+    Ok(resp)
 }
-
 
 pub fn into_module(){
 
@@ -312,97 +356,59 @@ pub fn into_module(){
         "serve",
         lua.create_async_function(
           |lua, (addr, handler): (String, mlua::Function)| async move {
-            let (req_tx, mut req_rx) = mpsc::channel::<ServerRequest>(32);
-            let handler_key = lua.create_registry_value(handler)?;
-            let lua = lua.clone();
-
-            let app = Router::new()
-              .fallback(any(axum_handler))
-              .with_state(req_tx.clone());
+            let handler_key = Arc::new(lua.create_registry_value(handler)?);
+            let lua_state = Arc::new(lua.clone());
 
             let socket_addr: SocketAddr = addr.parse().map_err(LuaError::external)?;
             let listener = tokio::net::TcpListener::bind(socket_addr)
               .await
               .map_err(LuaError::external)?;
 
-            let listener = tokio::spawn(async move {
-              if let Err(e) = axum::serve(listener, app).await {
-                eprintln!("Server error: {}", e);
-              }
+            let server_task = tokio::spawn(async move {
+                loop {
+                    let (stream, _) = match listener.accept().await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("Failed to accept connection: {}", e);
+                            continue;
+                        }
+                    };
+
+                    let io = TokioIo::new(stream);
+                    let lua_state = lua_state.clone();
+                    let handler_key = handler_key.clone();
+
+                    let service = service_fn(move |req: Request<hyper::body::Incoming>| {
+                        let lua = lua_state.clone();
+                        let handler = handler_key.clone();
+                        async move {
+                            Ok::<_, Infallible>(
+                                match handle_request(lua, handler, req).await {
+                                    Ok(resp) => resp,
+                                    Err(e) => {
+                                        eprintln!("Server error: {}", e);
+                                        Response::builder()
+                                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                            .body(Full::new(Bytes::from(format!("Internal Server Error: {}", e))))
+                                            .unwrap()
+                                    }
+                                }
+                            )
+                        }
+                    });
+
+                    tokio::spawn(async move {
+                        if let Err(err) = http1::Builder::new()
+                            .serve_connection(io, service)
+                            .await
+                        {
+                            eprintln!("Error serving connection: {:?}", err);
+                        }
+                    });
+                }
             });
 
-            tokio::spawn(async move {
-              while let Some(server_req) = req_rx.recv().await {
-                let handler = lua.registry_value::<mlua::Function>(&handler_key)?;
-                let (parts, body) = server_req.req.into_parts();
-                let body_bytes = axum::body::to_bytes(body, 1024 * 1024)
-                  .await
-                  .map_err(LuaError::external)?;
-
-                let req_table = lua.create_table()?;
-                req_table.set("method", parts.method.to_string())?;
-                let uri = parts.uri.to_string();
-                let host = parts
-                  .headers
-                  .get("host")
-                  .and_then(|v| v.to_str().ok())
-                  .unwrap_or("");
-                req_table.set("host", host)?;
-                req_table.set("uri", uri)?;
-
-                let headers_table = lua.create_table()?;
-                for (k, v) in parts.headers.iter() {
-                  headers_table.set(k.to_string(), v.to_str().unwrap_or(""))?;
-                }
-                req_table.set("headers", headers_table)?;
-                req_table.set(
-                  "body",
-                  LuluByteArray {
-                    bytes: body_bytes.to_vec(),
-                  },
-                )?;
-
-                let resp_handled = handler.call_async(req_table).await;
-
-                match resp_handled.clone() {
-                  Err(e) => {
-                    eprintln!("{}", e);
-                  }
-                  _ => {}
-                };
-
-                let resp_table: mlua::Table = resp_handled?;
-                let status: u16 = resp_table.get("status").unwrap_or(200);
-                let body: mlua::Value = resp_table.get("body").unwrap_or(mlua::Value::Nil);
-                let headers: HashMap<String, String> =
-                  resp_table.get("headers").unwrap_or_default();
-
-                let mut header_map = HeaderMap::new();
-                for (k, v) in headers {
-                  header_map.insert(
-                    HeaderName::from_bytes(k.as_bytes()).map_err(LuaError::external)?,
-                    HeaderValue::from_str(&v).map_err(LuaError::external)?,
-                  );
-                }
-
-                let body_bytes = match body {
-                  mlua::Value::String(s) => s.as_bytes().to_vec(),
-                  mlua::Value::UserData(ud) => ud.borrow::<LuluByteArray>()?.bytes.clone(),
-                  _ => Vec::new(),
-                };
-
-                let resp = Response::builder()
-                  .status(StatusCode::from_u16(status).map_err(LuaError::external)?)
-                  .header("x-powered-by", "Lulu")
-                  .body(axum::body::Body::from(body_bytes))
-                  .map_err(LuaError::external)?;
-
-                let _ = server_req.resp_tx.send(resp);
-              }
-              Ok::<(), LuaError>(())
-            });
-
-            TOK_ASYNC_HANDLES.lock().unwrap().push(listener);
+            TOK_ASYNC_HANDLES.lock().unwrap().push(server_task);
             Ok(())
           },
         )?,
@@ -410,7 +416,6 @@ pub fn into_module(){
 
       net_mod.set("http", http_mod)?;
 
-      // TCP
       let tcp_mod = lua.create_table()?;
       tcp_mod.set(
         "connect",
