@@ -3,6 +3,10 @@ macro {
   vec ($block) {Vec({ $block }):into()}
 }
 
+macro {
+  as_vec ($block) {Vec($block)}
+}
+
 function dump_item_into_string(o, indent)
   indent = indent or 0
   if type(o) == 'table' then

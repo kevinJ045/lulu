@@ -101,7 +101,7 @@ impl MacroRegistry {
           "methods".to_string(),
           "_constructor".to_string(),
         ],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -109,7 +109,31 @@ impl MacroRegistry {
       MacroDefinition {
         name: "spread".to_string(),
         params: vec!["name".to_string(), "methods".to_string()],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
+      },
+    );
+    macros.insert(
+      "const".to_string(),
+      MacroDefinition {
+        name: "const".to_string(),
+        params: vec!["name".to_string(), "value".to_string()],
+        body: Vec::new(),
+      },
+    );
+    macros.insert(
+      "get".to_string(),
+      MacroDefinition {
+        name: "get".to_string(),
+        params: vec!["name".to_string()],
+        body: Vec::new(),
+      },
+    );
+    macros.insert(
+      "eval".to_string(),
+      MacroDefinition {
+        name: "eval".to_string(),
+        params: vec!["content".to_string()],
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -117,7 +141,7 @@ impl MacroRegistry {
       MacroDefinition {
         name: "collect".to_string(),
         params: vec!["methods".to_string()],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -125,7 +149,7 @@ impl MacroRegistry {
       MacroDefinition {
         name: "enum".to_string(),
         params: vec!["name".to_string(), "methods".to_string()],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -133,7 +157,7 @@ impl MacroRegistry {
       MacroDefinition {
         name: "decorator".to_string(),
         params: vec!["methods".to_string()],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -141,7 +165,7 @@ impl MacroRegistry {
       MacroDefinition {
         name: "for_each".to_string(),
         params: vec!["item".to_string(), "iterator".to_string()],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -157,7 +181,7 @@ impl MacroRegistry {
       MacroDefinition {
         name: "cfg".to_string(),
         params: vec!["expr".to_string()],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -165,7 +189,7 @@ impl MacroRegistry {
       MacroDefinition {
         name: "package".to_string(),
         params: vec!["expr".to_string()],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -181,7 +205,7 @@ impl MacroRegistry {
       MacroDefinition {
         name: "test".to_string(),
         params: vec!["expr".to_string()],
-        body: tokenize("into(nil)"),
+        body: Vec::new(),
       },
     );
     macros.insert(
@@ -382,7 +406,7 @@ impl Lexer {
   }
 
   fn read_macro_param(&mut self) -> Token {
-    self.next_char(); // consume the '$'
+    self.next_char();
     let mut s = String::new();
     while let Some(ch) = self.peek_char() {
       if ch.is_ascii_alphanumeric() || ch == '_' {
@@ -397,10 +421,9 @@ impl Lexer {
 
   fn read_comment(&mut self) -> Token {
     let mut s = String::new();
-    s.push(self.next_char().unwrap()); // first -
-    s.push(self.next_char().unwrap()); // second -
+    s.push(self.next_char().unwrap());
+    s.push(self.next_char().unwrap());
 
-    // Read until end of line
     while let Some(ch) = self.peek_char() {
       if ch == '\n' || ch == '\r' {
         break;
@@ -646,6 +669,8 @@ pub struct Compiler {
   pub last_mod: Option<String>,
   pub env: String,
   pub current_test: Option<String>,
+
+  lua: mlua::Lua,
 }
 
 impl Compiler {
@@ -667,6 +692,7 @@ impl Compiler {
       last_mod: None,
       env: "dev".to_string(),
       current_test: None,
+      lua: mlua::Lua::new()
     }
   }
 
@@ -690,7 +716,6 @@ impl Compiler {
       let start = j;
       j += 1;
 
-      // decorator name + possible arguments
       while j < tokens.len() && matches!(&tokens[j], Token::Identifier(_, _) | Token::LeftParen(_))
       {
         if matches!(&tokens[j], Token::LeftParen(_)) {
@@ -830,7 +855,6 @@ impl Compiler {
           );
         }
         Token::LeftBrace(_) => {
-          // find the matching right brace
           let mut j = i + 1;
           let mut brace_depth = 1;
           while j < tokens.len() && brace_depth > 0 {
@@ -888,7 +912,6 @@ impl Compiler {
             continue;
           }
 
-          // normal push
           result.push(tokens[i].clone());
           i += 1;
         }
@@ -1079,7 +1102,7 @@ impl Compiler {
       _ => panic!("Undefined macro: {}", macro_name),
     };
 
-    let mut i = start + 1; // skip macro call token
+    let mut i = start + 1;
     let mut args = Vec::new();
     let mut current_arg = Vec::new();
     let mut brace_count = 0;
@@ -1181,6 +1204,14 @@ impl Compiler {
       self.compile_enum(args, path, conf)
     } else if macro_name == "decorator" {
       self.compile_decorator(args, path, conf)
+    } else if macro_name == "eval" {
+      self.compile_eval(args, path)
+    } else if macro_name == "const" {
+      self.compile_const(args)
+    } else if macro_name == "get" {
+      self.compile_get(args)
+    } else if macro_name == "decorator" {
+      self.compile_decorator(args, path, conf)
     } else if macro_name == "import" {
       let mut cargs = args.clone();
       let cpath = get_token_string(&args[1][0]).unwrap();
@@ -1235,6 +1266,44 @@ impl Compiler {
     i
   }
 
+  fn compile_eval(
+    &mut self,
+    args: Vec<Vec<Token>>,
+    path: Option<String>
+  ) -> Vec<Token> {
+    let body = self.generate_code(args[0].clone());
+
+    let _ = self.lua.globals().set("path", path);
+
+    if let Ok(x) = self.lua.load(body)
+      .set_name("compile_eval")
+      .eval::<String>() {
+        vec![Token::String(x, 0)]
+      } else {
+        Vec::new()
+      }
+  }
+
+  fn compile_get(
+    &mut self,
+    args: Vec<Vec<Token>>
+  ) -> Vec<Token> {
+    let name = self.generate_code(args[0].clone());
+    return vec![Token::String(self.lua.globals().get(name).unwrap(), 0)];
+  }
+
+  fn compile_const(
+    &mut self,
+    args: Vec<Vec<Token>>
+  ) -> Vec<Token> {
+    let name = self.generate_code(args[0].clone());
+    let val = self.generate_code(args[1].clone());
+
+    let _ = self.lua.globals().set(name, val);
+
+    return Vec::new();
+  }
+
   fn compile_spread(
     &mut self,
     args: Vec<Vec<Token>>,
@@ -1256,7 +1325,6 @@ impl Compiler {
     for (i, item) in items.iter().enumerate() {
       let trimmed = item.trim();
 
-      // Spread (...something)
       if trimmed.starts_with("...") {
         let name = trimmed.trim_start_matches("...");
         let (start, end) = {
@@ -1429,13 +1497,12 @@ impl Compiler {
     let decl_tokens: &_ = &args[0];
     let variants_tokens = &args[1];
 
-    // Parse enum decorators
     let mut i = 0;
     let mut enum_decorators: Vec<Vec<Token>> = Vec::new();
     while i < decl_tokens.len() {
       if let Some(Token::Symbol(s, _)) = decl_tokens.get(i) {
         if s == "@" {
-          i += 1; // Skip '@'
+          i += 1;
           let mut decorator_tokens = Vec::new();
           if let Some(Token::Identifier(_, _)) = decl_tokens.get(i) {
             decorator_tokens.push(decl_tokens[i].clone());
@@ -1472,7 +1539,6 @@ impl Compiler {
       .trim()
       .to_string();
 
-    // Variant parsing
     let mut variants: Vec<(String, Option<Vec<String>>, Vec<Vec<Token>>)> = Vec::new();
     let mut variant_groups: Vec<Vec<Token>> = Vec::new();
     let mut current_variant_tokens: Vec<Token> = Vec::new();
@@ -1491,7 +1557,6 @@ impl Compiler {
           current_variant_tokens.push(token.clone());
         }
         Token::Comma(_) if paren_depth == 0 => {
-          // split only if not inside parentheses
           if !current_variant_tokens.is_empty() {
             variant_groups.push(current_variant_tokens);
             current_variant_tokens = Vec::new();
@@ -1509,7 +1574,6 @@ impl Compiler {
 
     for tokens in variant_groups {
       let mut i = 0;
-      // skip leading whitespace
       while i < tokens.len() && matches!(tokens[i], Token::Whitespace(_, _)) {
         i += 1;
       }
@@ -1528,7 +1592,7 @@ impl Compiler {
 
         if let Some(Token::Symbol(s, _)) = tokens.get(i) {
           if s == "@" {
-            i += 1; // Skip '@'
+            i += 1;
             let mut decorator_tokens = Vec::new();
             if let Some(Token::Identifier(_, _)) = tokens.get(i) {
               decorator_tokens.push(tokens[i].clone());
@@ -1795,13 +1859,12 @@ impl Compiler {
       Vec::new()
     };
 
-    // Parse class decorators
     let mut i = 0;
     let mut class_decorators: Vec<Vec<Token>> = Vec::new();
     while i < decl_tokens.len() {
       if let Some(Token::Symbol(s, _)) = decl_tokens.get(i) {
         if s == "@" {
-          i += 1; // Skip '@'
+          i += 1;
           let mut decorator_tokens = Vec::new();
           if let Some(Token::Identifier(_, _)) = decl_tokens.get(i) {
             decorator_tokens.push(decl_tokens[i].clone());
@@ -1862,7 +1925,6 @@ impl Compiler {
 
     let mut self_assignments = String::new();
 
-    // Re-tokenize constructor argument list directly
     let mut constructor_arg_tokens = Vec::new();
     if !constructor_args.is_empty() {
       let joined = constructor_args.join(", ");
@@ -1873,7 +1935,6 @@ impl Compiler {
     let mut arg_index = 1;
 
     while i < constructor_arg_tokens.len() {
-      // Skip whitespace and commas
       while i < constructor_arg_tokens.len()
         && matches!(
           &constructor_arg_tokens[i],
@@ -1886,7 +1947,6 @@ impl Compiler {
         break;
       }
 
-      // Collect decorators
       let mut decorators = Vec::new();
       while i < constructor_arg_tokens.len() {
         match &constructor_arg_tokens[i] {
@@ -1897,7 +1957,6 @@ impl Compiler {
               decorator_tokens.push(constructor_arg_tokens[i].clone());
               i += 1;
 
-              // Handle @decorator(...)
               if let Some(Token::LeftParen(_)) = constructor_arg_tokens.get(i) {
                 let start = i;
                 let mut depth = 1;
@@ -1920,7 +1979,6 @@ impl Compiler {
         }
       }
 
-      // Now read the actual argument identifier (could be `self.x`, `&y`, or just `z`)
       let mut name_tokens = Vec::new();
       while i < constructor_arg_tokens.len() {
         match &constructor_arg_tokens[i] {
@@ -2003,7 +2061,6 @@ impl Compiler {
     let mut constructor_block_str = constructor_block.clone();
 
     if !constructor_block.is_empty() && matches!(constructor_block[0], Token::LeftParen(_)) {
-      // 1. Extract everything inside ( ... )
       let mut inner = Vec::new();
       let mut depth = 0;
       let mut i = 0;
@@ -2907,7 +2964,6 @@ end
 
     while i < tokens.len() {
       match &tokens[i] {
-        // stop at block start
         Token::LeftBrace(_) if paren == 0 => break,
 
         Token::LeftParen(_) => {
@@ -3166,7 +3222,7 @@ end
                 formatted.push_str(&format!("\"{}\" .. ", literal));
               }
 
-              let expr = &string_token[start + 1..end - 1]; // skip {}
+              let expr = &string_token[start + 1..end - 1];
               formatted.push_str(&format!("({}) .. ", expr));
 
               last = end;
@@ -3200,6 +3256,14 @@ end
             result.push_str("(function()");
             pass_until_block_end!(tokens, idx, 0);
             hooks_int.insert(idx, ")()".to_string());
+          }, check_token!(&tokens, i, 1, true, Token::Identifier(ident, _) if ident == "for" || ident == "while" => {
+            let mut idx = i + 1;
+
+            i = idx;
+
+            result.push_str("(function()\nlocal _col = {}\nlocal collect = function(a) table.insert(_col, a) end\n");
+            pass_until_block_end!(tokens, idx, 1);
+            hooks_int.insert(idx, "\nreturn _col\nend)()".to_string());
           }, check_token!(&tokens, i, 1, true, Token::Identifier(ident, _) if ident == "if" => {
             let mut idx = i + 1;
 
@@ -3269,7 +3333,7 @@ end
             pass_until_block_end!(tokens, idx, 0);
             hooks_int.insert(idx, ")".to_string());
             
-          }, result.push_str(name))));
+          }, result.push_str(name)))));
         }
         Token::Identifier(name, _) => {
           result.push_str(name);
@@ -3654,7 +3718,7 @@ pub fn wrap_macros(input: &str) -> String {
 
     let before = &input[..start];
     let body = &input[start + "macros = {".len()..end].trim();
-    let after = &input[end + 1..]; // skip final `}`
+    let after = &input[end + 1..];
 
     let mut wrapped_macros = Vec::new();
     let mut current = String::new();

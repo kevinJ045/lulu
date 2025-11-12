@@ -211,3 +211,47 @@ repeat_n! 1, 5, {
   print(i) -- The iterator `i` is automatically available
 }
 ```
+
+## `const!`
+
+> Generating Macro
+
+The result is just an empty space, but it does register the name and value registered. 
+
+```lua
+const! MY_VAL, Some thing;
+const! MY_LONG_VAL, {
+  a long text content
+}
+
+print(get! MY_VAL;)
+```
+
+## `get!`
+
+> Generating Macro
+
+Get whatever has been set by `eval!` and `const!`;
+
+```lua
+print(get! the_variable_name;)
+```
+
+## `eval!`
+
+> Generating Macro
+
+Evaluate a value at compile time, you can also set to `const!`.
+
+```lua
+print(eval! {
+  1 + 1
+}) -- 2
+
+-- or
+
+eval! {
+  RESULT = 1 + 1
+}
+print(get! RESULT;)
+```

@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "lulu"
-version = "0.0.709"
+version = "0.0.710"
 dependencies = [
  "anyhow",
  "battery",

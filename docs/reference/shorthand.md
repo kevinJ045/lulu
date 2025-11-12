@@ -393,6 +393,20 @@ end
 
 -- or
 print(in if true then ... else ... end)
+
+
+-- quick for/while
+
+local my_table = in for i = 1, 10 do
+  collect(i) -- collect only exists in this block. 
+             -- "i" will be a part of the result table
+end
+
+local i = 0
+local my_other_table = in while i < 10 do
+  i += 1
+  collect(i)
+end
 ```
 
 ## Operation shorthands
