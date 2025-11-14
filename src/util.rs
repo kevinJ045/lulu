@@ -1,5 +1,7 @@
 use mlua::Lua;
 use std::path::Path;
+use std::fs;
+use std::io;
 
 #[macro_export]
 macro_rules! handle_error {
@@ -52,4 +54,21 @@ pub fn normalize_name(cpath: &str) -> String {
   }
 
   parts.join("-")
+}
+
+pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> io::Result<()> {
+  fs::create_dir_all(&destination)?;
+
+  for entry in fs::read_dir(source)? {
+    let entry = entry?;
+    let filetype = entry.file_type()?;
+    let dest_path = destination.as_ref().join(entry.file_name());
+
+    if filetype.is_dir() {
+      copy_recursively(entry.path(), dest_path)?;
+    } else {
+      fs::copy(entry.path(), dest_path)?;
+    }
+  }
+  Ok(())
 }

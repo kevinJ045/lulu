@@ -2,7 +2,7 @@ use crate::bundle::{bundle_lulu_or_exec, load_lulib, run_bundle, set_exec_path};
 use crate::cli::{CacheCommand, Cli, Commands};
 use crate::conf::load_lulu_conf;
 use crate::core::Lulu;
-use crate::ops::{core::register_consts, TOK_ASYNC_HANDLES};
+use crate::ops::{TOK_ASYNC_HANDLES, core::register_consts};
 use crate::package_manager::PackageManager;
 use clap::Parser;
 use mlua::Result;
@@ -11,18 +11,19 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+mod builders;
 mod bundle;
 mod cli;
 pub mod compiler;
 pub mod conf;
-mod lml;
 pub mod core;
+mod lml;
+mod lulibs;
 mod ops;
 mod package_manager;
 mod project;
 mod resolver;
 mod util;
-mod lulibs;
 
 macro_rules! into_exec_command {
   ($lua:expr, $env:expr, (), $cmd:expr $(, $arg:expr)*) => {{
@@ -187,6 +188,7 @@ async fn main() -> Result<()> {
       }
       Commands::Build { path } => {
         let conf_path = path.join("lulu.conf.lua");
+        crate::builders::register_default_builders();
 
         if !conf_path.exists() {
           eprintln!("Path has no lulu.conf.lua");
@@ -246,6 +248,19 @@ async fn main() -> Result<()> {
             })?,
           )?;
 
+          let ipath = path.clone();
+          let larc = lulu_arc.clone();
+          lua.globals().set(
+            "execute_file",
+            lua.create_function(move |_, file: String| {
+              let file_path = ipath.join(file.clone());
+              let code = std::fs::read(file_path)?;
+              let lulu = larc.lock().unwrap();
+              lulu.lua.load(code).set_name(file).exec()?;
+              Ok(())
+            })?,
+          )?;
+
           lua.globals().set(
             "download_file_async",
             lua.create_async_function(async move |_, url: String| {
@@ -278,6 +293,125 @@ async fn main() -> Result<()> {
                 end
               })
               .into_function()?,
+          )?;
+
+          let bw_path = path.clone();
+          lua.globals().set(
+            "build_with",
+            lua.create_function(
+              move |_, (builder, path, args): (String, String, Option<Vec<String>>)| {
+                let path = bw_path.join(path);
+                crate::builders::build_path(builder, path, args.unwrap_or(Vec::new()))?;
+                Ok(())
+              },
+            )?,
+          )?;
+
+          let exec_path = path.clone();
+          lua.globals().set(
+            "exec_command",
+            lua.create_function(
+              move |_, (command, args, path): (String, Vec<String>, Option<String>)| {
+                let exec_path = if let Some(path) = path {
+                  exec_path.join(path)
+                } else {
+                  exec_path.clone()
+                };
+                let mut cmd = std::process::Command::new(command);
+                cmd.current_dir(exec_path).args(args);
+                let status = cmd.status().map_err(mlua::Error::external)?;
+                if status.success() {
+                  Ok(())
+                } else {
+                  Err(mlua::Error::external(status.to_string()))
+                }
+              },
+            )?,
+          )?;
+
+          lua.globals().set(
+            "new_builder",
+            lua.create_function(move |_, (name, function): (String, mlua::Function)| {
+              #[derive(Clone)]
+              struct CustomBuilder {
+                func: Arc<mlua::Function>,
+              }
+
+              impl crate::builders::BuilderTrait for CustomBuilder {
+                fn build(&self, path: &std::path::PathBuf, args: &[String]) -> mlua::Result<()> {
+                  self.func.call::<()>((path.clone(), args.to_vec()))
+                }
+              }
+
+              {
+                use crate::builders::BUILDERS;
+                let mut map = BUILDERS.write().unwrap();
+                map.insert(
+                  name.clone(),
+                  Arc::new(CustomBuilder {
+                    func: Arc::new(function),
+                  }),
+                );
+              }
+
+              Ok(())
+            })?,
+          )?;
+
+          let collect_path = path.clone();
+          lua.globals().set(
+            "collect_lib",
+            lua.create_function(move |_, file: String| {
+              let path = collect_path.join(file);
+              let libpath = collect_path.join(".lib/dylib");
+
+              std::fs::copy(path, libpath).map_err(mlua::Error::external)?;
+
+              Ok(())
+            })?,
+          )?;
+
+          let copy_path = path.clone();
+          lua.globals().set(
+            "copy_all",
+            lua.create_function(move |_, (file, dest): (String, String)| {
+              let path = copy_path.join(file);
+              let dest = copy_path.join(dest);
+
+              crate::util::copy_recursively(path, dest).map_err(mlua::Error::external)?;
+
+              Ok(())
+            })?,
+          )?;
+
+          let collect_path = path.clone();
+          lua.globals().set(
+            "collect_libs",
+            lua.create_function(move |_, files: HashMap<String, Vec<String>>| {
+              let current_os = std::env::consts::OS;
+
+              let libs = if let Some(url) = files.get(current_os) {
+                Ok(url)
+              } else if let Some(url) =
+                files.get(&format!("{}-{}", current_os, std::env::consts::ARCH))
+              {
+                Ok(url)
+              } else {
+                Err(mlua::Error::external(format!(
+                  "No lib found for OS: {}",
+                  current_os
+                )))
+              }?;
+
+              for file in libs.iter() {
+                let path = collect_path.join(file);
+                let libpath = collect_path.join(".lib/dylib");
+
+                std::fs::copy(path, libpath).map_err(mlua::Error::external)?;
+              }
+
+              Ok(())
+            })?,
           )?;
 
           lua.globals().set(
@@ -443,7 +577,6 @@ async fn main() -> Result<()> {
           }
         }
         .await;
-
       }
       Commands::New {
         name,

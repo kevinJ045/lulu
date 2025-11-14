@@ -1,5 +1,5 @@
 
-eval! {
-  RESULT = 1 + 1
-}
-print(get! RESULT;)
+
+local vec = vec!{1, 2, 3}
+
+print(vec)

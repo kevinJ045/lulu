@@ -3,6 +3,7 @@ use crate::lulibs::collections::{LuluHashMap, LuluHashSet};
 use crate::ops::process::register_exec;
 use crate::ops::std::create_std;
 use crate::package_manager::PackageManager;
+use crate::util::copy_recursively;
 use crate::{core::Lulu, core::LuluModSource, ops::std::get_std_module};
 use mlua::Lua;
 use std::collections::{HashMap, HashSet};
@@ -169,6 +170,14 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
 
   lua.globals().set(
     "cp",
+    lua.create_function(|_, (src, dest): (String, String)| {
+      copy_recursively(&src, &dest)?;
+      Ok(())
+    })?,
+  )?;
+
+  lua.globals().set(
+    "cp_raw",
     lua.create_function(|_, (src, dest): (String, String)| {
       fs::copy(&src, &dest)?;
       Ok(())

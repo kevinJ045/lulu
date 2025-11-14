@@ -10,6 +10,7 @@ pub mod resolver;
 pub mod util;
 pub mod sourcemap;
 pub mod lulibs;
+pub mod builders;
 
 pub use tokio;
 pub use mlua;

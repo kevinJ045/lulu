@@ -373,7 +373,7 @@ Result.func.unwrap = function(item)
   return item.content and item.content or item.err
 end
 
-function into_collectible(name)
+function into_collectible(name, indexible)
   return function(class)
     function class:into()
       local parent = self
@@ -399,6 +399,12 @@ function into_collectible(name)
               else
                 return result
               end
+            end
+          end
+
+          if indexible then
+            if parent[indexible][key] then
+              val = parent[indexible][key]
             end
           end
 
@@ -461,7 +467,7 @@ function validate_type(...)
 end
 
 
-class! @into_collectible("collect") Vec, {
+class! @into_collectible("collect", "items") Vec, {
   init(len) {
     if type(len) == "number" then
       self.items = {}
