@@ -199,6 +199,7 @@ async fn main() -> Result<()> {
         let lua = mlua::Lua::new();
 
         register_consts(&lua)?;
+        crate::util::create_lib_folders(&path)?;
 
         if let Some(build_fn_lua) = conf::load_lulu_conf_builder(&lua, conf_string.clone())? {
           let main = conf::load_lulu_conf_code(&lua, conf::CodeType::Code(conf_string))?;
@@ -363,7 +364,10 @@ async fn main() -> Result<()> {
             "collect_lib",
             lua.create_function(move |_, file: String| {
               let path = collect_path.join(file);
-              let libpath = collect_path.join(".lib/dylib");
+              let libpath = collect_path.join(format!(
+                ".lib/dylib/{}",
+                path.file_name().unwrap().to_string_lossy()
+              ));
 
               std::fs::copy(path, libpath).map_err(mlua::Error::external)?;
 
@@ -405,7 +409,10 @@ async fn main() -> Result<()> {
 
               for file in libs.iter() {
                 let path = collect_path.join(file);
-                let libpath = collect_path.join(".lib/dylib");
+                let libpath = collect_path.join(format!(
+                  ".lib/dylib/{}",
+                  path.file_name().unwrap().to_string_lossy()
+                ));
 
                 std::fs::copy(path, libpath).map_err(mlua::Error::external)?;
               }

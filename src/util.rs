@@ -1,5 +1,5 @@
 use mlua::Lua;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs;
 use std::io;
 
@@ -71,4 +71,15 @@ pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>)
     }
   }
   Ok(())
+}
+
+pub fn create_lib_folders(project_path: &Path) -> io::Result<(PathBuf, PathBuf)> {
+  let project_lib_dir = project_path.join(".lib");
+  let project_lulib_dir = project_lib_dir.join("lulib");
+  let project_dylib_dir = project_lib_dir.join("dylib");
+
+  fs::create_dir_all(&project_lulib_dir)?;
+  fs::create_dir_all(&project_dylib_dir)?;
+
+  Ok((project_lulib_dir, project_dylib_dir))
 }

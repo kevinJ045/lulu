@@ -3286,7 +3286,7 @@ end
             }
 
             let name = tokens[idx].clone();
-            let mut p = "nil".to_string();
+            let mut p = "getfenv()".to_string();
 
             idx += 1;
 
@@ -3302,12 +3302,7 @@ end
                 j += 1;
               }
               if j < tokens.len() && matches!(&tokens[j], Token::Identifier(_, _)) {
-                if p == "nil" {
-                  p = "".to_string();
-                }
-                if p != "" {
-                  p.push_str(",");
-                }
+                p.push_str(",");
                 p.push_str(&get_token_string(&tokens[j]).unwrap());
                 j += 1;
 

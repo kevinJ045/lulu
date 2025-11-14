@@ -539,12 +539,8 @@ impl PackageManager {
     project_path: &Path,
     _package_info: &PackageInfo,
   ) -> Result<()> {
-    let project_lib_dir = project_path.join(".lib");
-    let project_lulib_dir = project_lib_dir.join("lulib");
-    let project_dylib_dir = project_lib_dir.join("dylib");
 
-    fs::create_dir_all(&project_lulib_dir)?;
-    fs::create_dir_all(&project_dylib_dir)?;
+    let (project_lulib_dir, project_dylib_dir) = crate::util::create_lib_folders(project_path)?;
 
     let cache_lulib_dir = cache_path.join(".lib");
     if cache_lulib_dir.exists() {

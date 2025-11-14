@@ -240,6 +240,23 @@ impl Lulu {
     let current = self.current.clone();
     let lookup_dylib = self.lua.create_function(move |_, name: String| {
       let path = std::fs::canonicalize(current.clone().unwrap_or(PathBuf::from(".")))?;
+
+      let name = if name.starts_with("@") {
+        let prefix = if std::env::consts::OS == "windows" {
+          ""
+        } else {
+          "lib"
+        };
+        let ext = match std::env::consts::OS {
+          "windows" => ".dll",
+          "macos" => ".dylib",
+          _ => ".so",
+        };
+
+        format!("{}{}{}", prefix, &name[1..], ext)
+      } else {
+        name
+      };
       let lib_folder = path.join(".lib/dylib").join(name.clone());
       let dylib_here = path.join("dylib").join(name.clone());
 

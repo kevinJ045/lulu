@@ -39,7 +39,7 @@ function fprint(...)
 end
 
 function ns_inherit_from(...)
-  local parents = { ... }
+  local parents = { getfenv(), ... }
 
   return setmetatable({}, {
     __index = function(_, key)
@@ -93,7 +93,7 @@ function namespace(tbl)
     if tbl ~= nil and tbl.__gns then
       t = tbl
     else
-      t = setmetatable(tbl or {}, { __index = _G })
+      t = setmetatable(t, { __index = _G })
     end
     setfenv(chunk, t)
     local r = chunk(tbl) or tbl
@@ -940,3 +940,25 @@ setmetatable(lulib, {
     end
   end
 })
+
+function dylib(dylib)
+  return function(name)
+    local function load(ctx)
+      ctx[name] = ffi.load(ctx.lookup_dylib(dylib))
+    end
+    return function(ctx)
+      if type(ctx) == "string" then
+        ffi.cdef(ctx)
+        return load
+      else
+        return load(ctx)
+      end
+    end
+  end
+end
+
+function dylib_cdef(def)
+  return function()
+    ffi.cdef(def)
+  end
+end
