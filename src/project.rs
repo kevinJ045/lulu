@@ -160,7 +160,6 @@ pub fn new(path: String, git: bool, ignore: bool, lib: bool) {
 
   let is_lib = optionify(&["is this a lulu library?"], ignore, lib);
 
-  println!("Options set");
   println!("Creating files");
 
   if let Err(e) = fs::create_dir_all(&new_path) {
