@@ -3556,6 +3556,9 @@ end
                     Token::Symbol(sym, _) if sym == "," => {
                       k += 1;
                     }
+                    Token::Comma(_) => {
+                      k += 1;
+                    }
                     Token::Symbol(sym, _) if sym == "." => {
                       vararg.push('.');
                       k += 1;

@@ -39,7 +39,7 @@ function fprint(...)
 end
 
 function ns_inherit_from(...)
-  local parents = { getfenv(), ... }
+  local parents = { ... }
 
   return setmetatable({}, {
     __index = function(_, key)
