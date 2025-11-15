@@ -559,21 +559,16 @@ impl PackageManager {
     }
 
     let current_platform = self.get_current_platform();
-    let dylib_extension = self.get_dylib_extension();
 
     let cache_dylib_dir = cache_path.join(".lib/dylib");
     if cache_dylib_dir.exists() {
       for entry in fs::read_dir(&cache_dylib_dir)? {
         let entry = entry?;
         if entry.file_type()?.is_file() {
-          let file_name = entry.file_name().to_string_lossy().to_string();
+          let dest_path = project_dylib_dir.join(entry.file_name());
 
-          if file_name.ends_with(&format!(".{}", dylib_extension)) {
-            let dest_path = project_dylib_dir.join(entry.file_name());
-
-            if !dest_path.exists() {
-              fs::copy(&entry.path(), &dest_path)?;
-            }
+          if !dest_path.exists() {
+            fs::copy(&entry.path(), &dest_path)?;
           }
         }
       }
@@ -584,14 +579,10 @@ impl PackageManager {
       for entry in fs::read_dir(&platform_dylib_dir)? {
         let entry = entry?;
         if entry.file_type()?.is_file() {
-          let file_name = entry.file_name().to_string_lossy().to_string();
+          let dest_path = project_dylib_dir.join(entry.file_name());
 
-          if file_name.ends_with(&format!(".{}", dylib_extension)) {
-            let dest_path = project_dylib_dir.join(entry.file_name());
-
-            if !dest_path.exists() {
-              fs::copy(&entry.path(), &dest_path)?;
-            }
+          if !dest_path.exists() {
+            fs::copy(&entry.path(), &dest_path)?;
           }
         }
       }
@@ -601,19 +592,7 @@ impl PackageManager {
   }
 
   fn get_current_platform(&self) -> &'static str {
-    if cfg!(target_os = "linux") {
-      "linux"
-    } else if cfg!(target_os = "windows") {
-      "windows"
-    } else if cfg!(target_os = "macos") {
-      "macos"
-    } else {
-      "unknown"
-    }
-  }
-
-  fn get_dylib_extension(&self) -> &'static str {
-    crate::resolver::current_platform()
+    std::env::consts::OS
   }
 
   pub async fn install_packages(

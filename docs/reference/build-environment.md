@@ -19,10 +19,6 @@ Here are the functions available in that environment.
 
 - **`download_file(url)`**: Downloads a URL into a cache path and returns the cache path.
 
-- **`set_stub(path)`**: Set the [stub](../stubs/README.md) into a predetermined existing path.
-
-- **`stubs({stub_map})`**: Set the [stub](../stubs/README.md) from a platform-specific URL map.
-
 - **`bundle_main(entry_module, is_lib)`**: Bundles the project starting from the given entry module.
   - `entry_module` (string): The name of the module from your `mods` table to use as the entry point (e.g., `"main"`).
   - `is_lib` (boolean, optional): If `true`, creates a `.lulib` library bundle. If `false` or omitted, creates a standalone executable.
@@ -49,3 +45,53 @@ Here are the functions available in that environment.
   - `path` (string): The path to the file.
 
 - **`exists(path)`**: Returns `true` if a file or directory exists at the given path, `false` otherwise.
+
+- **`copy_all(path, dest)`**: Copies files recursively from one place to another.
+
+- **`set_stub(path)`**: Set the [stub](../stubs/README.md) into a predetermined existing path.
+
+- **`stubs({stub_map})`**: Set the [stub](../stubs/README.md) from a platform-specific URL map.
+
+## Scripting
+
+- **`exec_command(command, ...args)`**: Executes a command.
+
+- **`execute_file(path)`**: Executes a file in the current lulu context (useful if you wanna script your builds with a full lulu context).
+
+## Cross Environment Building
+
+You can build other types of projects through your `build` function. For example, `cargo`, `cmake`, `make`...
+
+
+- **`build_with(builder, path, command_args?)`**: Builds the specified path with a builder.
+    -   By default, there are 4 builders. `cargo`, `make`, `cmake`, `gcc`.
+    -   **Example**:
+        ```lua
+        build = function()
+
+          -- this will build a folder called rust-project
+          -- in the root of your project.
+          build_with("cargo", "rust-project", {
+            "build", "--release"
+          })
+
+        end
+        ```
+  
+- **`new_builder(name, function(path, command_args?))`**: Registers a new builder to be used with `build_with`.
+
+
+- **`collect_lib(path)`**: Collects a dylib from said file into `.lib/dylib` folder.
+
+- **`collect_libs(os_libmap)`**: Collects dylibs from the provided map.
+    -   **Example**:
+        ```lua
+        build = function()
+
+          collect_libs {
+            linux = {"rust-project/target/release/librust_project.so"},
+            windows = {"rust-project/target/release/rust_project.dll"},
+          }
+
+        end
+        ```

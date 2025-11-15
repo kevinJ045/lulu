@@ -33,6 +33,7 @@
   * [Threads lulib](lulib/threads.md)
   * [Clap lulib](lulib/clap.md)
   * [Sys lulib](lulib/sys.md)
+  * [Dylib/ffi](lulib/ffi.md)
 
 * **Stubs**
   * [About Stubs](stubs/README.md)
