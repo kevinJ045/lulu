@@ -962,3 +962,8 @@ function dylib_cdef(def)
     ffi.cdef(def)
   end
 end
+
+function into_global(key, value)
+  _G[key] = value
+  return value
+end
