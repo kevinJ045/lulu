@@ -1015,8 +1015,12 @@ runtime.once = function(usage)
 end
 
 local usage_data = {}
+local usage_data_per_mod = {}
 function Usage(func)
   return function(ctx, ...)
-    return func(ctx, usage_data, {...})
+    if not usage_data_per_mod[ctx.mod.name] then
+      usage_data_per_mod[ctx.mod.name] = {}
+    end
+    return func(ctx, { global = usage_data, mod = usage_data_per_mod[ctx.mod.name] }, ...)
   end
 end
