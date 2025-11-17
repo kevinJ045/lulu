@@ -1,11 +1,8 @@
 using {
   static 'count' (ArcMutex(0)),
-
   
-  namespace({ name = "dd" })
+  namespace({ name = "dd" }, { dd = "name" }),
 }
-
-print(name)
 
 while count() < 10 do
   count(count + 1)

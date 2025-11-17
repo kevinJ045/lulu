@@ -3381,7 +3381,25 @@ end
             if !lhs.is_empty() {
               hooks_int.insert(i + 1, format!(" {} {}", lhs, sym));
             }
-          }, result.push_str(sym));
+          }, if sym == "*" { 
+            check_token!(&tokens, i, 1, false, Token::Identifier(current_token, ind) => {
+              check_token!(&tokens, ind, 1, true, Token::Symbol(char, ind) if char == '='.to_string() => {
+                let next_token = &peek_through(&tokens, ind, 1, true).unwrap_or(Token::EOF(0));
+                result.push_str(format!("ptr_set({}, {})", current_token, match next_token {
+                  Token::String(s, _) => format!("{:?}", s),
+                  Token::Identifier(s, _) => format!("{}", s),
+                  Token::Number(s, _) => format!("{}", s),
+                  _ => panic!("You can only set a pointer to a preset value")
+                }).as_str());
+                i = extract_token_idx(next_token.clone());
+              }, {
+                result.push_str(format!("ptr_deref({})", current_token).as_str());
+                i += 1;
+              });
+            }, result.push_str(sym));
+          } else {
+            result.push_str(sym);
+          });
         }
         Token::Symbol(sym, _) if sym == "&" => {
           check_token!(&tokens, i, 1, false, Token::String(current_token, _)=> {
@@ -3394,23 +3412,6 @@ end
             result.push_str(format!("ptr_of({})", current_token).as_str());
             i += 1;
           }, result.push_str(sym))));
-        }
-        Token::Symbol(sym, _) if sym == "*" => {
-          check_token!(&tokens, i, 1, false, Token::Identifier(current_token, ind) => {
-            check_token!(&tokens, ind, 1, true, Token::Symbol(char, ind) if char == '='.to_string() => {
-              let next_token = &peek_through(&tokens, ind, 1, true).unwrap_or(Token::EOF(0));
-              result.push_str(format!("ptr_set({}, {})", current_token, match next_token {
-                 Token::String(s, _) => format!("{:?}", s),
-                 Token::Identifier(s, _) => format!("{}", s),
-                 Token::Number(s, _) => format!("{}", s),
-                 _ => panic!("You can only set a pointer to a preset value")
-              }).as_str());
-              i = extract_token_idx(next_token.clone());
-            }, {
-              result.push_str(format!("ptr_deref({})", current_token).as_str());
-              i += 1;
-            });
-          }, result.push_str(sym));
         }
         Token::Symbol(sym, _) if sym == ":" => {
           check_token!(&tokens, i, 1, false, Token::Symbol(symb, _) if symb == ":" => {

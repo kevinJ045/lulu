@@ -86,20 +86,28 @@ local function mkproxy(parent)
   return proxy
 end
 
-function namespace(tbl)
+function namespace(tbl, ...)
+  local namespaces = {...}
+  local ns = tbl
+
+  if #namespaces > 0 then
+    ns = ns_inherit_from(tbl, ...)
+  end
+  
   return function(chunk)
-    local t = tbl
-    if tbl ~= nil and tbl.__gns then
-      t = tbl
+    local t = ns
+    if ns ~= nil and ns.__gns then
+      t = ns
     else
       t = setmetatable(t, { __index = _G })
     end
     if type(chunk) == "table" then
       setmetatable(chunk, { __index = t })
+      return
     end
     chunk = chunk or function() end
     setfenv(chunk, t)
-    local r = chunk(tbl) or tbl
+    local r = chunk(ns) or ns
     r.__static = mkproxy(r)
     return r
   end
@@ -1035,7 +1043,3 @@ function Usage(func)
     return func(ctx, { global = usage_data, mod = usage_data_per_mod[ctx.mod.name] }, ...)
   end
 end
-
-function domain(){
-
-}
