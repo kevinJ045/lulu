@@ -88,13 +88,16 @@ end
 
 function namespace(tbl)
   return function(chunk)
-    chunk = chunk or function() end
     local t = tbl
     if tbl ~= nil and tbl.__gns then
       t = tbl
     else
       t = setmetatable(t, { __index = _G })
     end
+    if type(chunk) == "table" then
+      setmetatable(chunk, { __index = t })
+    end
+    chunk = chunk or function() end
     setfenv(chunk, t)
     local r = chunk(tbl) or tbl
     r.__static = mkproxy(r)
@@ -361,6 +364,10 @@ Option.func.unwrap = function(item)
   return item.content and item.content or nil
 end
 
+Option.func.is_some = function(item)
+  return item.content and true or false
+end
+
 enum! Result, {
   Ok(content),
   Err(err)
@@ -368,6 +375,10 @@ enum! Result, {
 
 Ok = Result.Ok
 Err = Result.Err
+
+Option.func.is_ok = function(item)
+  return item.content and true or false
+end
 
 Result.func.unwrap = function(item)
   return item.content and item.content or item.err
@@ -1024,3 +1035,7 @@ function Usage(func)
     return func(ctx, { global = usage_data, mod = usage_data_per_mod[ctx.mod.name] }, ...)
   end
 end
+
+function domain(){
+
+}
