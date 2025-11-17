@@ -1,5 +1,6 @@
 use crate::lulibs::bytes::LuluByteArray;
 use crate::lulibs::collections::{LuluHashMap, LuluHashSet};
+use crate::lulibs::rust::{LuluArc, lua_to_lulu};
 use crate::ops::process::register_exec;
 use crate::ops::std::create_std;
 use crate::package_manager::PackageManager;
@@ -11,6 +12,8 @@ use std::fs;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 use tokio::time;
+use base64::prelude::*;
+
 
 pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   let mods = lulu.mods.clone();
@@ -332,8 +335,52 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   lua.globals().set("HashMap", map_ctor)?;
   lua.globals().set(
     "ByteArray",
-    lua.create_function(|_, bytes: Vec<u8>| Ok(LuluByteArray { bytes }))?,
+    lua.create_function(|_, value: mlua::Value| match value {
+      mlua::Value::String(s) => {
+        let vec = s.as_bytes().to_vec();
+        Ok(LuluByteArray { bytes: vec })
+      }
+
+      mlua::Value::Table(t) => {
+        let mut vec = Vec::new();
+        for elem in t.sequence_values::<u8>() {
+          vec.push(elem?)
+        }
+        Ok(LuluByteArray { bytes: vec })
+      }
+
+      _ => Err(mlua::Error::external(
+        "ByteArray requires a string or array table",
+      )),
+    })?,
   )?;
+  lua.globals().set(
+    "base64",
+    lua.create_function(|_, s: String| {
+      let bytes = BASE64_STANDARD.decode(&s).map_err(|e| mlua::Error::external(format!("Invalid base64: {}", e)))?;
+      Ok(LuluByteArray { bytes })
+    })?,
+  )?;
+
+  lua.globals().set(
+    "Arc",
+    lua.create_function(|_, v: mlua::Value| {
+      Ok(LuluArc::new_plain(lua_to_lulu(&v)?))
+    })?,
+  )?;
+  lua.globals().set(
+    "ArcMutex",
+    lua.create_function(|_, v: mlua::Value| {
+      Ok(LuluArc::new_mutex(lua_to_lulu(&v)?))
+    })?,
+  )?;
+  lua.globals().set(
+    "ArcRwlock",
+    lua.create_function(|_, v: mlua::Value| {
+      Ok(LuluArc::new_rwlock(lua_to_lulu(&v)?))
+    })?,
+  )?;
+
   lua.globals().set(
     "exec_sandboxed",
     lua.create_function(

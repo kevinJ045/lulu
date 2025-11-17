@@ -948,7 +948,9 @@ function dylib(dylib)
     end
     return function(ctx)
       if type(ctx) == "string" then
-        ffi.cdef(ctx)
+        try_catch! {
+          ffi.cdef(ctx)
+        }, {}
         return load
       else
         return load(ctx)
@@ -966,4 +968,55 @@ end
 function into_global(key, value)
   _G[key] = value
   return value
+end
+
+local function globalize(thing, name)
+  into_global(thing, fn)
+end
+
+local _keystore = {}
+
+function static(key, val)
+  local function _init(ctx)
+    if _keystore[f"{ctx.mod.name}::{key}"] then
+      ctx[key] = _keystore[f"{ctx.mod.name}::{key}"]
+      return ctx[key]
+    end
+    ctx[key] = val
+    _keystore[f"{ctx.mod.name}::{key}"] = ctx[key]
+    return ctx[key]
+  end
+  if val then return _init end
+  return function(v)
+    val = v
+    return _init
+  end
+end
+
+function keystore(ctx)
+  ctx.kget = function(key)
+    return _keystore[f"{ctx.mod.name}::{key}"]
+  end
+  ctx.kset = function(key, val)
+    _keystore[f"{ctx.mod.name}::{key}"] = val
+  end
+end
+
+runtime = {}
+
+runtime.once = function(usage)
+  return function(ctx)
+    if _keystore[f"ran-{ctx.mod.name}"] then
+      return nil
+    end
+    _keystore[f"ran-{ctx.mod.name}"] = true
+    return usage(ctx, 'once')
+  end
+end
+
+local usage_data = {}
+function Usage(func)
+  return function(ctx, ...)
+    return func(ctx, usage_data, {...})
+  end
 end

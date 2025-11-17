@@ -1,3 +1,4 @@
+use base64::prelude::*;
 
 #[derive(Clone)]
 pub struct LuluByteArray {
@@ -29,6 +30,10 @@ impl mlua::UserData for LuluByteArray {
       }
     });
 
+    methods.add_method("to_str", |_lua, this, ()| {
+      _lua.create_string(&this.bytes)
+    });
+
     methods.add_method_mut("extend", |_, this, other: mlua::AnyUserData| {
       let other_bytes = other.borrow::<LuluByteArray>()?;
       this.bytes.extend(&other_bytes.bytes);
@@ -39,6 +44,11 @@ impl mlua::UserData for LuluByteArray {
       this.bytes.extend(other);
       Ok(())
     });
+
+    methods.add_method("to_base64", |_, this, ()| {
+        Ok(BASE64_STANDARD.encode(&this.bytes))
+    });
+
 
     methods.add_method_mut("push", |_, this, byte: u8| {
       this.bytes.push(byte);

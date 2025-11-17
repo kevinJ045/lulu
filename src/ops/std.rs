@@ -267,4 +267,6 @@ pub fn init_std_modules() {
   crate::lulibs::threads::into_module();
 
   crate::lulibs::console::into_module();
+
+  // crate::lulibs::rust::into_module();
 }

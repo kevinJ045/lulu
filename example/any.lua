@@ -1,14 +1,11 @@
 using {
-  lulib.console
+  static 'count' (ArcMutex(0))
 }
 
-local s = cs"hi"
-  .rgb({100, 255, 0})
-  .underline({0, 0, 100})
-  .bold()
+while count() < 10 do
+  count(count + 1)
+end
 
-console.print(
-  s(),
-  console.red("hi"),
-  console.italic("sss")
-)
+print(count())
+
+

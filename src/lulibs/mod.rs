@@ -7,3 +7,4 @@ pub mod threads;
 pub mod kv;
 pub mod serialize;
 pub mod console;
+pub mod rust;

@@ -40,6 +40,7 @@ sled = "0.34.7"
 battery = "0.7.8"
 sysinfo = "0.36.1"
 crossterm = "0.25"
+base64 = "0.21"
 
 [profile.release]
 opt-level = "z"
