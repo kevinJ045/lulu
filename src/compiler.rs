@@ -3779,7 +3779,7 @@ end
                   false
                 };
 
-                prefix.push_str(&format!("{}(", decorator_str));
+                prefix.push_str(&format!("{}({}", decorator_str, if func_name.contains(":") { format!("{},", func_name.split(":").collect::<Vec<&str>>()[0]) } else { "".to_string() }));
                 if is_async {
                   suffix.push(')');
                 } else {

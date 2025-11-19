@@ -24,6 +24,10 @@
   * [Other Macros](macros/other-macros.md)
   * [Custom Macros](macros/custom-macros.md)
 
+* **Decorators**
+  * [Introduction](decorators/README.md)
+  * [Introduction](decorators/README.md)
+
 * **Lulibs**
   * [About Lulibs](lulib/README.md)
   * [Serde lulib](lulib/serde.md)

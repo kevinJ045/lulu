@@ -2,7 +2,7 @@
 
 > Generating Macro
 
-The `decorator!` macro is a powerful tool for creating higher-order functions, known as decorators, that can be used to modify or wrap classes, enums, methods, and parameters. This enables cross-cutting concerns like logging, validation, or persistence to be applied cleanly and declaratively.
+The `decorator!` macro is useful for creating higher-order functions, known as decorators, that can be used to modify or wrap classes, enums, methods, and parameters. This enables cross-cutting concerns like logging, validation, or persistence to be applied cleanly and declaratively.
 
 ## Defining a Decorator
 
