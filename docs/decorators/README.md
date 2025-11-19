@@ -24,6 +24,10 @@ end
 
 -- Apply the decorator
 class! @MyClassDeco MyClass;
+
+-- Or
+
+{} -> @MyClassDeco MyClass
 ```
 
 Usually, you'd use class decorators to apply methods and properties through `init`.
@@ -105,4 +109,90 @@ end
 
 ### Enum Decorators
 
-Enum decorators, just like Class decorators, 
+Enum decorators, just like Class decorators, are applied across the whole enum.
+
+```lua
+
+function UnwrapEnum(_enum, name)
+  _enum.func.unwrap = function(item)
+    return item.content
+  end
+
+  return _enum
+end
+
+enum! @UnwrapEnum MyEnum, {
+  Some(content),
+  None
+}
+
+-- Or
+
+{
+  Some(content),
+  None
+} -< @UnwrapEnum MyEnum
+```
+
+### Enum Variant Decorators
+
+Enum Variants can have decorators (not variant parameters) as such:
+
+```lua
+function DynamicVar(_enum, variant, name)
+
+  if type(variant) == "function" then
+    -- dynamic variant
+  else
+    -- static variant
+  end
+
+  return _enum
+end
+
+enum! MyEnum, {
+  @DynamicVar
+  Some(content),
+
+  @DynamicVar
+  None
+}
+
+{
+  @DynamicVar
+  Some(content),
+
+  @DynamicVar
+  None
+} -< MyEnum
+```
+
+### Parameter Decorators
+
+These parameters are applied inside of functions (like class constructors, methods or functions).
+
+```lua
+
+-- self is { __class: { empty = true } } for functions
+-- without a self
+function NotNill(self, value, name)
+  if value == nil then
+    error(f"{name} can not be nil")
+  end
+  return value
+end
+
+(@NotNill a) myFunc =>
+
+end
+
+class! MyClass, {
+  something(@NotNill arg){}
+}
+
+-- for this, it has to be decorated to apply parameter decorators
+@Deco
+function myFunc(@NotNill a)
+
+end
+```

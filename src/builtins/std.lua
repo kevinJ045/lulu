@@ -663,6 +663,11 @@ function validate_type(...)
         return method(self, unpack(verify(...)))
       end
     }
+    (_func) {
+      return function(...)
+        return method(unpack(verify(...)))
+      end
+    }
     (_enum, variant) {
       dynamic {
         return function(...)

@@ -26,7 +26,8 @@
 
 * **Decorators**
   * [Introduction](decorators/README.md)
-  * [Introduction](decorators/README.md)
+  * [Traits](decorators/traits.md)
+  * [Default Decorators](decorators/defaults.md)
 
 * **Lulibs**
   * [About Lulibs](lulib/README.md)
