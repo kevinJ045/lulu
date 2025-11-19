@@ -157,6 +157,7 @@ function index_of(object, item)
   for i, val in ipairs(object) do
     if val == item then return i end
   end
+  return -1
 end
 
 function make_enum_var(enum_table, vname, names, ...)
@@ -244,11 +245,20 @@ function iseq(first, second)
   if first and type(first) == "table" and instanceof(first, second) then
     return true
   end
+  
+  if first and type(first) == "table" and derive.satiates(first, second) then
+    return true
+  end
 
   return result
 end
 
-function empty_class()
+function empty_class(self)
+  if self then
+    if type(self) == "table" and self.__class then
+      return self
+    end
+  end
   return {
     __class = {
       empty = true
@@ -392,6 +402,188 @@ Result.func.unwrap = function(item)
   return item.content and item.content or item.err
 end
 
+
+
+local function handle_trait_value(self, key, val, def)
+  local v = val or def
+
+  if type(v) == "table" and type(v[1]) == "function" then
+    v = derive.with(unpack(v))
+  end 
+
+  if type(v) == "table" and v.__is_decorated then
+    local d = def
+    if v == d or d == nil then
+      d = nil
+    else
+      d = handle_trait_value(self, key, def)
+    end
+    return v.__func(self, key, d)
+  elseif def != nil then
+    return def 
+  end
+
+  return v
+end
+
+local function apply_traits(new, traits, options, args, on_function)
+  for _, trait in ipairs(traits) do
+    for k, v in pairs(trait) do
+      if k != "__is_trait" or k != "__init" or k != "__on_apply" or k != "__apply" then
+        if type(v) != "function" then
+          new[k] = handle_trait_value(new, k, v, new[k] or options[k])
+        else
+          if on_function then
+            on_function(new, k, v)
+          else
+            new[k] = function(...)
+              return v(new, ...)
+            end
+          end
+        end
+      end
+    end
+    trait.__init(new, options, on_function, unpack(args))
+  end
+end
+
+function trait(template, ...)
+  local traits = {...}
+
+  template.__is_trait = true
+
+  return function(func)
+    template.__init = function(self, options, on_function, ...)
+      if #traits > 0 then
+        apply_traits(self, traits, options, {...}, on_function)
+      end
+      func(self, ...)
+    end
+    template.__apply = function(into, options, args, on_function)
+      apply_traits(into, {template}, options, args, on_function)
+    end
+    return template
+  end
+end
+
+function with_trait(...)
+  local traits = {...}
+  return function(_class)
+    function _class:init(...)
+      apply_traits(self, traits, self, { ... }, function(_, k, v)
+        if not _class[k] then
+          _class[k] = function(self, ...)
+            return v(self, ...)
+          end
+        end
+      end)
+    end
+
+    for _, trait in ipairs(traits) do
+      trait.__on_apply(_class)
+    end
+
+    return _class
+  end
+end
+
+derive = setmetatable({}, {
+  __call = function(tbl, template, ...)
+    local traits = {...}
+    return function(func)
+      local p = setmetatable({
+        __static = {
+          __template = template,
+          __traits = traits
+        }
+      }, {
+        __call = function(tbl, options, ...)
+          local new = { __class = tbl }
+
+          if not options then options = {} end
+
+          apply_traits(new, traits, options, { ... })
+
+          for k, v in pairs(template) do
+            new[k] = handle_trait_value(new, k, template[k], options[k])
+          end
+
+          for k, v in pairs(tbl.__static) do
+            new[k] = function(...)
+              v(new, ...)
+            end
+          end
+
+          func(new, ...)
+          return new
+        end,
+        __newindex = function(tbl, k, v)
+          if type(v) == "function" then
+            tbl.__static[k] = v
+          end
+
+          return rawset(tbl, k, v)
+        end
+      })
+
+      for _, trait in ipairs(p.__static.__traits) do
+        if trait.__on_apply then
+          trait.__on_apply(p)
+        end
+      end
+
+      return p
+    end
+  end
+})
+
+derive.with = function(...)
+  local decos = {...}
+  return {
+    __is_decorated = true,
+    __func = function(instance, name, def)
+      local default = def
+      for _, deco in ipairs(decos) do
+        default = deco(instance, default, name)
+      end
+      return default
+    end
+  }
+end
+
+
+derive.satiates = function(thing, ...)
+  local traits = {...}
+  local satiates = true
+  
+  for _, trait in ipairs(traits) do
+    local satiated_all = true
+    
+    if thing.__class then
+      for k in pairs(trait) do
+        if k:sub(1, 2) != '__' then
+          if not thing[k] then
+            satiated_all = false
+            thing = thing.__class
+            break
+          end
+        end
+      end
+    end
+    
+    if not satiated_all and thing.__static and thing.__static.__traits then
+      if index_of(thing.__static.__traits, trait) < 0 then
+        satiated_all = false
+      end
+    end
+
+    satiates = satiates and satiated_all
+    if not satiates then break end
+  end
+
+  return satiates
+end
+
 function into_collectible(name, indexible)
   return function(class)
     function class:into()
@@ -441,6 +633,8 @@ function into_collectible(name, indexible)
   end
 end
 
+
+
 function validate_type(...)
   local types = {...}
 
@@ -448,15 +642,15 @@ function validate_type(...)
     _ {
       local verify = function(...)
         local args = {...}
-        for i, arg in ipairs(args) do
-          if types[i] == '!' then
+        for i, t in ipairs(types) do
+          local arg = args[i]
+          if t == '!' then
 
-          elseif type(arg) != types[i] and not iseq(arg, types[i]) then
-            local t = types[i]
-            if types[i] != "number" and types[i] != "string" then
-              t = f"abstract({tostring(types[i])})"
+          elseif type(arg) != t and not iseq(arg, t) then
+            if t != "number" and t != "string" then
+              t = f"abstract({tostring(t)})"
             end
-            error(types[i] and f"Expected {t} for {name} at argument {i}. Found {type(arg)}" or (
+            error(t and f"Expected {t} for {name} at argument {i}. Found {type(arg)}" or (
               #types > #args and f"Expected {#types} arguments for {name}, given {#args}" or f"Extra args for {name}."
             ))
           end
@@ -485,6 +679,15 @@ function validate_type(...)
   }
 end
 
+function map_into(fn)
+  return function(_self, value, name)
+    if type(fn) == "function" then
+      return fn(value, _self, name)
+    else
+      return value or fn
+    end
+  end
+end
 
 class! @into_collectible("collect", "items") Vec, {
   init(len) {
@@ -714,22 +917,47 @@ function Deserializable(_stype)
 end
 
 function Serializable(_stype)
-  return function(_class)
-    () _class:serialize =>
+  return setmetatable(trait({
+    serialize = function(self)
       return serde[_stype].encode(extract_serializable(self))
-    end
-    () _class:__tostring =>
-      return self:serialize()
-    end
-    (arg) _class:deserialize =>
-      if type(arg) == "string" then
-        arg = serde[_stype].decode(arg)
+    end,
+    __on_apply = function(_class)
+      local s = _class.__static
+      if _class.__call_init then
+        s = _class
       end
-      return _class(arg)
+      s.deserialize = function(arg)
+        if type(arg) == "string" then
+          arg = serde[_stype].decode(arg)
+        end
+        return _class(arg)
+      end
     end
-    return _class
-  end
+  })(function(self) end), {
+    __call = function(tbl, _class)
+      () _class:serialize =>
+        return serde[_stype].encode(extract_serializable(self))
+      end
+      () _class:__tostring =>
+        return self:serialize()
+      end
+      (arg) _class:deserialize =>
+        if type(arg) == "string" then
+          arg = serde[_stype].decode(arg)
+        end
+        return _class(arg)
+      end
+
+      return _class
+    end
+  })
 end
+
+Clone = trait({
+  clone = function(self)
+    return self.__class(self)
+  end
+})(function(self) end)
 
 class! @into_collectible("to_string") String, {
   init(s){
