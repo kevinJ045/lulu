@@ -8,6 +8,7 @@
   * [Configuration File](reference/configuration.md)
   * [Build Environment](reference/build-environment.md)
   * [Lua Runtime API](reference/lua-runtime.md)
+  * [The Using Directive](reference/using.md)
   * [Helper Classes](reference/helper-classes.md)
   * [Shorthand Expressions](reference/shorthand.md)
   * [Testing](reference/testing.md)

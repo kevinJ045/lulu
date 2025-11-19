@@ -36,6 +36,7 @@ Here, I laid most lulu concepts, each with their costs.
 | Enum Shorthands    |          Extreme |       Medium |
 | `=>` Shorthands    |             High |       Medium |
 | Decorators         |             High |         High |
+| Traits             |           Medium |         High |
 | `+=`, `-=`, ...    |              Low |         None |
 | `in local ...`     |             High |         High |
 | `in do/if ...`     |             High |         High |
