@@ -584,6 +584,59 @@ derive.satiates = function(thing, ...)
   return satiates
 end
 
+function enum_from_string(enum)
+  if not enum::from then enum::from = function(idx)
+    for k, v in pairs(enum) do
+      if type(v) == "table" and (v.index == idx or string.lower(k) == idx or k == idx) then
+        return v
+      end
+    end
+  end end
+
+  return enum
+end
+
+local function into_indexed_enum(enum)
+  if not enum::index then enum::index = function(idx)
+    for k, v in pairs(enum) do
+      if type(v) == "table" and (v.index == idx or string.lower(k) == idx or k == idx) then
+        return v.index
+      end
+    end
+  end end
+  
+  enum_from_string(enum)
+end
+
+function enum_index(idx)
+  return function(enum, variant)
+    into_indexed_enum(enum)
+
+    variant.index = idx
+
+    return variant
+  end
+end
+
+function enum_indexed(idx)
+  return function(enum)
+    into_indexed_enum(enum)
+
+    local index = idx
+
+    for k, v in pairs(enum) do
+      if type(v) == "table" and v.__enum_var then
+        if v.index == nil then
+          v.index = index
+          index += 1
+        end
+      end
+    end
+
+    return enum
+  end
+end
+
 function into_collectible(name, indexible)
   return function(class)
     function class:into()
