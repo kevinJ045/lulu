@@ -12,7 +12,7 @@ function Ddd() end
   meow = function(self)
     print(f"{self.name} is meowing")
   end
-}, Clone)
+})
 function Cat(self)
   self.is_cat = true
 end

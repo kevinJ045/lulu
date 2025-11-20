@@ -8,3 +8,4 @@ pub mod kv;
 pub mod serialize;
 pub mod console;
 pub mod rust;
+pub mod pathing;

@@ -8,9 +8,9 @@
   * [Configuration File](reference/configuration.md)
   * [Build Environment](reference/build-environment.md)
   * [Lua Runtime API](reference/lua-runtime.md)
-  * [The Using Directive](reference/using.md)
   * [Helper Classes](reference/helper-classes.md)
   * [Shorthand Expressions](reference/shorthand.md)
+  * [The Using Directive](reference/using.md)
   * [Testing](reference/testing.md)
   * [Costs](reference/costs.md)
 
@@ -40,6 +40,7 @@
   * [Clap lulib](lulib/clap.md)
   * [Sys lulib](lulib/sys.md)
   * [Dylib/ffi](lulib/ffi.md)
+  * [Pathing](lulib/pathing.md)
 
 * **Stubs**
   * [About Stubs](stubs/README.md)

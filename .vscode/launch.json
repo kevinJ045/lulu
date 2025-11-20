@@ -6,7 +6,7 @@
       "type": "lldb",
       "request": "launch",
       "program": "${workspaceFolder}/target/debug/lulu",
-      "args": ["compile", "./example/any.lua"],
+      "args": ["run", "./example/any.lua"],
       "cwd": "${workspaceFolder}",
       "env": {
         "MY_CUSTOM_ENV": "hello"

@@ -3797,7 +3797,7 @@ end
               let self_context = if is_method { "self" } else { "empty_class(self)" };
               let (args_str, deco_str) = self.parse_decorated_args(args_tokens, self_context);
 
-              result.push_str(&format!("({}{})", if is_method { "self," } else { "" }, args_str));
+              result.push_str(&format!("({}{})", if is_method { if args_str.is_empty() { "self" } else { "self," } } else { "" }, args_str));
               result.push_str(&deco_str);
 
               let body_tokens = &tokens[args_end_i..body_end_i];

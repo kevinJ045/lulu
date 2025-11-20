@@ -10,7 +10,7 @@ Simple arrow functions that allow decoration.
 <table class="side-by-side">
 <tr>
 <th>Shorthand</th>
-<th>Lua</th>
+<th>Natural</th>
 </tr>
 <tr>
 <td>
@@ -53,6 +53,7 @@ local (a, @default_to(0) b) myFunc =>
   print("Hi")
 end
 
+
 -- Namespaced
 () @namespace(object) =>
   print("Hi")
@@ -84,21 +85,22 @@ function myClass:myFunc()
 end
 
 -- Async
-async(function()
+@async function()
   print("Hi")
-end)
+end
 
 -- Decorated
--- Not possible
-
-
-
-
+@depricated
+@validate("string")
+function myFunc()
+  print("Hi")
+end
 
 -- Params Decorated
--- Not possible
-
-
+@decorator -- requires top-level decoration 
+local function myFunc(@default_to(0) b)
+  print("Hi")
+end
 
 -- Namespaced
 namespace(object)(function()

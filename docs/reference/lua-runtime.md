@@ -48,6 +48,7 @@ Within each module, Lulu also provides a few special variables:
 - **`mod`**: A table containing information about the current module, including `mod.name` and `mod.conf`.
 - **`current_path`**: The path of the currently executing script.
 - **`lookup_dylib(name)`**: Finds a dynamic library in the project's `.lib` directory or the system path.
+- **`into_global(name, value)`**: Registers an item into the global scope (past the current module environment/context).
 
 ## Lulu cache manager
 
@@ -59,28 +60,3 @@ Within each module, Lulu also provides a few special variables:
 - **`async download_file(url)`**: Downloads the file into a cache and gives you the `cache` folder. If cached, won't download.
 - **`async download_uncached(url)`**: Same as `download_file` but will download regardless of being in cache.
 - **`require_cached(url)`**: Dynamically include a lulib from url instead of adding it [`dependencies`](/reference/configuration.md#dependencies).
-  
-
-## Memory Safety
-
-- **`Arc(v)`**: Creates a simple `Arc` wrapped rust contained safe variable.
-  -   **where v can be**:
-      - `String`
-      - `Number`
-      - `Table`
-      - `Dict/Table`
-- **`ArcMutex(v)`**: An `Arc<Mutex<LuluWrappedValue>>` container
-- **`ArcRwlock(v)`**: An `Arc<Rwlock<LuluWrappedValue>>` container
-  -    **Usage**:
-      ```lua
-      local f = ArcMutex(0)
-      -- getting
-      f() or f:get()
-      -- setting
-      f(1) or f:set(1) -- to set
-
-      f.type -- the arc type
-      f.kind -- the kind
-      f:tostring() -- rust formatted string
-      f:clone_handle() -- clones the handle, same value
-      ```
