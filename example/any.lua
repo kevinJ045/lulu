@@ -1,8 +1,20 @@
 
-using {
-  lulib.pathing
-}
+local {
+  Some(content),
+  None
+} -< Option
 
-local path = pathing.appdata():join("my-app"):ensure()
-print(path)
--- path.extension.ensure()
+
+
+match(Option.Some('somestuff')) do
+  in Option.Some then
+    print('Some')
+    print(val.content)
+  in _ then
+    print("nope")
+end
+
+match(x) do
+  in (val > 5) then
+    return "hi"
+end

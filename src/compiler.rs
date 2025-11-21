@@ -854,6 +854,86 @@ impl Compiler {
             conf.clone(),
           );
         }
+
+        Token::Identifier(name, _) if name == "match" => {
+          let mut idx = i + 1;
+          while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) { idx += 1; }
+
+          if !matches!(&tokens[idx], Token::LeftParen(_)) {
+            result.push(tokens[i].clone());
+            i += 1;
+            continue;
+          }
+
+          idx += 1;
+
+          let mut expr_tokens = Vec::new();
+          let mut paren_count = 1;
+
+          while idx < tokens.len() && paren_count > 0 {
+            match &tokens[idx] {
+              Token::LeftParen(_) => {
+                paren_count += 1;
+                expr_tokens.push(tokens[idx].clone());
+                idx += 1;
+              },
+              Token::RightParen(_) => {
+                if paren_count > 1 {
+                  paren_count -= 1;
+                  expr_tokens.push(tokens[idx].clone());
+                  idx += 1;
+                } else {
+                  idx += 1;
+                  break;
+                }
+              },
+              _ => {
+                expr_tokens.push(tokens[idx].clone());
+                idx += 1;
+              }
+            }
+          }
+
+          while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) { idx += 1; }
+          if idx < tokens.len() && !matches!(&tokens[idx], Token::Identifier(id, _) if id == "do") {
+            result.push(tokens[i].clone());
+            i += 1;
+            continue;
+          }
+          idx += 1;
+
+          let mut patterns = Vec::new();
+
+          while idx < tokens.len() {
+            while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) { idx += 1; }
+            if matches!(&tokens[idx], Token::Identifier(id, _) if id == "in") {
+              idx += 1;
+
+              let pattern = self.parse_pattern(&tokens, &mut idx);
+
+              let body = self.parse_branch_body(&tokens, &mut idx);
+
+              patterns.extend(pattern);
+              patterns.push(Token::LeftBrace(0));
+              patterns.extend(body);
+              patterns.push(Token::RightBrace(0));
+
+            } else if matches!(&tokens[idx], Token::Identifier(id, _) if id == "end") {
+              idx += 1;
+              break;
+            } else {
+              panic!("Expected 'in' or 'end' inside match block");
+            }
+          }
+
+          if patterns.len() > 0 {
+            let tokens = self.compile_match(vec![expr_tokens, patterns], path.clone(), conf.clone());
+            result.extend(tokens);
+          } else {
+            result.push(tokens[i].clone());
+          }
+          i = idx;
+        }
         Token::LeftBrace(_) => {
           let mut j = i + 1;
           let mut brace_depth = 1;
@@ -1711,8 +1791,7 @@ impl Compiler {
         let (expr_tokens, next_i) = self.capture_extra_expression(tokens, i);
         if expr_tokens.is_empty() {
           panic!(
-            "Expected match pattern (identifier, string, number, call, or table) at {:?}",
-            i
+            "Expected function name and block."
           );
         }
         i = next_i;
@@ -1756,9 +1835,8 @@ impl Compiler {
         tokenized.extend(vec![
           Token::Whitespace("\n".to_string(), 0),
           Token::Identifier(enum_name.clone(), 0),
-          Token::Symbol(".".to_string(), 0),
-          Token::Identifier("func".to_string(), 0),
-          Token::Symbol(".".to_string(), 0),
+          Token::Symbol(":".to_string(), 0),
+          Token::Symbol(":".to_string(), 0),
           name.clone(),
           Token::Whitespace(" ".to_string(), 0),
           Token::Symbol("=".to_string(), 0),
@@ -3292,6 +3370,40 @@ end
 
     (args_str, deco_str)
   }
+
+  fn parse_pattern(&self, tokens: &[Token], idx: &mut usize) -> Vec<Token> {
+    let mut pat = Vec::new();
+    while *idx < tokens.len() {
+      match &tokens[*idx] {
+        Token::Identifier(id, _) if id == "then" => { *idx += 1; break; }
+        _ => {
+          pat.push(tokens[*idx].clone());
+          *idx += 1;
+        }
+      }
+    }
+    pat
+  }
+
+  fn parse_branch_body(&self, tokens: &[Token], idx: &mut usize) -> Vec<Token> {
+    let mut depth = 0;
+    let mut body_tokens = Vec::new();
+
+    while *idx < tokens.len() {
+      match &tokens[*idx] {
+        Token::Identifier(id, _) if id == "in" && depth == 0 => break,
+        Token::Identifier(id, _) if id == "end" && depth == 0 => break,
+        Token::LeftBrace(_) | Token::LeftParen(_) => depth += 1,
+        Token::RightBrace(_) | Token::RightParen(_) => depth -= 1,
+        _ => {}
+      }
+      body_tokens.push(tokens[*idx].clone());
+      *idx += 1;
+    }
+
+    body_tokens.to_vec()
+  }
+
 
   fn generate_code(&self, tokens: Vec<Token>) -> String {
     let mut result = String::new();

@@ -7,6 +7,38 @@ macro {
   as_vec ($block) {Vec($block)}
 }
 
+function table.keys(t)
+  local ks = {}
+  for k in pairs(t) do
+    table.insert(ks, k)
+  end
+  return ks
+end
+
+function table.values(t)
+  local vs = {}
+  for _, v in pairs(t) do
+    table.insert(vs, v)
+  end
+  return vs
+end
+
+function table.entities(t)
+  local e = {}
+  for k, v in pairs(t) do
+    table.insert(e, { k, v })
+  end
+  return e
+end
+
+function table.from_entities(t)
+  local o = {}
+  for _, v in ipairs(t) do
+    o[v[1]] = v[2]
+  end
+  return o
+end
+
 function dump_item_into_string(o, indent)
   indent = indent or 0
   if type(o) == 'table' then
@@ -115,7 +147,6 @@ end
 
 function make_enum(name)
   local e = {}
-  e.func = {}
 
   function e.is(obj, variant)
     if type(obj) ~= 'table' then return false end
@@ -126,12 +157,29 @@ function make_enum(name)
     end
     return obj.__enum == e
   end
+
+  local _create_funcs = {}
+
+  function e.on_create(fn)
+    table.insert(_create_funcs, fn)
+    return e
+  end
   
   e.__is_enum = true
   e.__name = name or ""
   e.__static = mkproxy(e)
   
-  return e
+  return setmetatable(e, {
+    __newindex = function(tbl, k, v)
+      if type(v) == "function" or (type(v) == "table" and v.__enum_var) then
+        for _, v in ipairs(_create_funcs) do
+          v(v, k)
+        end
+      end
+
+      rawset(tbl, k, v)
+    end
+  })
 end
 
 local __enum_var_name = {}
@@ -177,7 +225,7 @@ function make_enum_var(enum_table, vname, names, ...)
   end
   setmetatable(o, {
     __index = function(tbl, key)
-      local item = enum_table.func[key]
+      local item = enum_table.__static[key]
       if type(item) == 'function' then
         return function(...) return item(o, ...) end
       end
@@ -246,10 +294,6 @@ function iseq(first, second)
     return true
   end
   
-  if first and type(first) == "table" and derive.satiates(first, second) then
-    return true
-  end
-
   return result
 end
 
@@ -378,11 +422,11 @@ enum! Option, {
 Some = Option.Some
 None = Option.None
 
-Option.func.unwrap = function(item)
+Option::unwrap = function(item)
   return item.content and item.content or nil
 end
 
-Option.func.is_some = function(item)
+Option::is_some = function(item)
   return item.content and true or false
 end
 
@@ -394,11 +438,11 @@ enum! Result, {
 Ok = Result.Ok
 Err = Result.Err
 
-Option.func.is_ok = function(item)
+Option::is_ok = function(item)
   return item.content and true or false
 end
 
-Result.func.unwrap = function(item)
+Result::unwrap = function(item)
   return item.content and item.content or item.err
 end
 
@@ -480,7 +524,9 @@ function with_trait(...)
     end
 
     for _, trait in ipairs(traits) do
-      trait.__on_apply(_class)
+      if trait.__on_apply then
+        trait.__on_apply(_class)
+      end
     end
 
     return _class
@@ -913,7 +959,7 @@ class! @into_collectible("collect", "items") Vec, {
     end
     return items
   }
-
+  
   of(_type){
     return {
       __is_vec = true,
@@ -1072,6 +1118,16 @@ class! @into_collectible("to_string") String, {
 
   clone(){
     return String("" .. self.str)
+  }
+
+  upper(){
+    self.str = string.upper(self.str)
+    return self
+  }
+
+  lower(){
+    self.str = string.lower(self.str)
+    return self
   }
 
   __tostring(){

@@ -25,3 +25,12 @@ enum! Something, {
 local value = Something.Variant("some content")
 value.change_content("into")
 print(value.unwrap())
+
+
+
+match(Some('somestuff')) do
+  in Some then
+    print(val.unwrap())
+  in _ then
+    print("nope")
+end
