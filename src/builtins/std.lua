@@ -50,7 +50,7 @@ function dump_item_into_string(o, indent)
     for k, v in pairs(o) do
       if type(k) == "number" or k:sub(1, 2) ~= "__" then
         s = s .. string.rep('  ', indent + 1) .. tostring(k) .. ' = ' .. dump_item_into_string(v, indent + 1) .. ',\n'
-      end        
+      end
     end
     return s .. string.rep('  ', indent) .. '}'
   else
@@ -125,7 +125,7 @@ function namespace(tbl, ...)
   if #namespaces > 0 then
     ns = ns_inherit_from(tbl, ...)
   end
-  
+
   return function(chunk)
     local t = ns
     if ns ~= nil and ns.__gns then
@@ -164,11 +164,11 @@ function make_enum(name)
     table.insert(_create_funcs, fn)
     return e
   end
-  
+
   e.__is_enum = true
   e.__name = name or ""
   e.__static = mkproxy(e)
-  
+
   return setmetatable(e, {
     __newindex = function(tbl, k, v)
       if type(v) == "function" or (type(v) == "table" and v.__enum_var) then
@@ -274,7 +274,7 @@ function make_class(class_raw, parent)
   setmetatable(class, class_meta)
 
   class.__static = mkproxy(class)
-  
+
   return class
 end
 
@@ -289,11 +289,11 @@ function iseq(first, second)
   if first and type(first) == "table" and type(second) == "table" and second.is and second.is(first) then
     return true
   end
-  
+
   if first and type(first) == "table" and instanceof(first, second) then
     return true
   end
-  
+
   return result
 end
 
@@ -396,7 +396,7 @@ Future.scheduler = coroutine.create(function()
   local i = 1
   while #__future_stack > 0 do
     local fut = __future_stack[i]
-    if not fut.done then 
+    if not fut.done then
       fut:poll()
     end
     if fut.done then
@@ -453,7 +453,7 @@ local function handle_trait_value(self, key, val, def)
 
   if type(v) == "table" and type(v[1]) == "function" then
     v = derive.with(unpack(v))
-  end 
+  end
 
   if type(v) == "table" and v.__is_decorated then
     local d = def
@@ -464,7 +464,7 @@ local function handle_trait_value(self, key, val, def)
     end
     return v.__func(self, key, d)
   elseif def != nil then
-    return def 
+    return def
   end
 
   return v
@@ -601,10 +601,10 @@ end
 derive.satiates = function(thing, ...)
   local traits = {...}
   local satiates = true
-  
+
   for _, trait in ipairs(traits) do
     local satiated_all = true
-    
+
     if thing.__class then
       for k in pairs(trait) do
         if k:sub(1, 2) != '__' then
@@ -616,7 +616,7 @@ derive.satiates = function(thing, ...)
         end
       end
     end
-    
+
     if not satiated_all and thing.__static and thing.__static.__traits then
       if index_of(thing.__static.__traits, trait) < 0 then
         satiated_all = false
@@ -650,7 +650,7 @@ local function into_indexed_enum(enum)
       end
     end
   end end
-  
+
   enum_from_string(enum)
 end
 
@@ -959,7 +959,7 @@ class! @into_collectible("collect", "items") Vec, {
     end
     return items
   }
-  
+
   of(_type){
     return {
       __is_vec = true,
@@ -1331,8 +1331,8 @@ function into_global(key, value)
   return value
 end
 
-local function globalize(thing, name)
-  into_global(thing, fn)
+function globalize(thing, name)
+  return into_global(name, thing)
 end
 
 local _keystore = {}

@@ -1273,7 +1273,7 @@ dependencies = [
 
 [[package]]
 name = "lulu"
-version = "0.0.717"
+version = "0.0.718"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
