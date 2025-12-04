@@ -79,11 +79,7 @@
             ];
 
             shellHook = ''
-            export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [
-              pkgs.libxkbcommon
-              pkgs.wayland
-              pkgs.wayland-protocols
-            ]}:$LD_LIBRARY_PATH
+            export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [pkgs.luajit]}:$LD_LIBRARY_PATH
             '';
           };
         }

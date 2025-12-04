@@ -99,11 +99,11 @@ A simple match statement syntax normalizer.
 local x = 10
 
 match(x) do
-  in (val > 5) then
+  if (val > 5) then
     return "it is five!"
-  in 3 or 4 then
+  if 3 or 4 then
     return "almost there!"
-  in _ then
+  if _ then
     return "very small"
 end
 ```

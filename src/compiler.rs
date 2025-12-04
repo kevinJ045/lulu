@@ -209,6 +209,14 @@ impl MacroRegistry {
       },
     );
     macros.insert(
+      "into_string".to_string(),
+      MacroDefinition {
+        name: "into_string".to_string(),
+        params: vec!["expr".to_string()],
+        body: Vec::new(),
+      },
+    );
+    macros.insert(
       "include_bytes".to_string(),
       MacroDefinition {
         name: "include_bytes".to_string(),
@@ -503,10 +511,31 @@ pub fn tokenize(input: &str) -> Vec<Token> {
 
 fn get_token_string(tok: &Token) -> Option<String> {
   match tok {
+    Token::BraceString(s, _) => Some(s.clone()),
     Token::String(s, _) => Some(s.clone()),
     Token::Identifier(s, _) => Some(s.clone()),
     Token::Symbol(s, _) => Some(s.clone()),
     _ => None,
+  }
+}
+
+fn get_token_string_all(tok: &Token) -> String {
+  match tok {
+    Token::String(s, _) => s.clone(),
+    Token::Identifier(s, _) => s.clone(),
+    Token::MacroCall(s, _) => s.clone(),
+    Token::MacroParam(s, _) => s.clone(),
+    Token::Symbol(s, _) => s.clone(),
+    Token::BraceString(s, _) => s.clone(),
+    Token::Number(s, _) => s.to_string(),
+    Token::Whitespace(s, _) => s.clone(),
+    Token::LeftBrace(_) => "{".to_string(),
+    Token::RightBrace(_) => "}".to_string(),
+    Token::LeftParen(_) => "(".to_string(),
+    Token::RightParen(_) => ")".to_string(),
+    Token::Comma(_) => ",".to_string(),
+    Token::Macro(_) => "macro".to_string(),
+    _ => "".to_string(),
   }
 }
 
@@ -620,15 +649,10 @@ macro_rules! pass_until_block_end {
     let mut block_depth = 0;
     while $i < $tokens.len() {
       match $tokens[$i] {
-        Token::Identifier(ref id, _)
-          if id == "function" || id == "do" || id == "if" =>
-        {
+        Token::Identifier(ref id, _) if id == "function" || id == "do" || id == "if" => {
           block_depth += 1
         }
-        Token::Symbol(ref sym, _) if sym == "=>" =>
-        {
-          block_depth += 1
-        }
+        Token::Symbol(ref sym, _) if sym == "=>" => block_depth += 1,
         Token::Identifier(ref id, _) if id == "end" => {
           if block_depth == $depth {
             break;
@@ -639,7 +663,7 @@ macro_rules! pass_until_block_end {
         _ => {}
       }
       $i += 1;
-    }  
+    }
   };
 }
 
@@ -692,7 +716,7 @@ impl Compiler {
       last_mod: None,
       env: "dev".to_string(),
       current_test: None,
-      lua: mlua::Lua::new()
+      lua: mlua::Lua::new(),
     }
   }
 
@@ -857,7 +881,9 @@ impl Compiler {
 
         Token::Identifier(name, _) if name == "match" => {
           let mut idx = i + 1;
-          while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) { idx += 1; }
+          while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) {
+            idx += 1;
+          }
 
           if !matches!(&tokens[idx], Token::LeftParen(_)) {
             result.push(tokens[i].clone());
@@ -876,7 +902,7 @@ impl Compiler {
                 paren_count += 1;
                 expr_tokens.push(tokens[idx].clone());
                 idx += 1;
-              },
+              }
               Token::RightParen(_) => {
                 if paren_count > 1 {
                   paren_count -= 1;
@@ -886,7 +912,7 @@ impl Compiler {
                   idx += 1;
                   break;
                 }
-              },
+              }
               _ => {
                 expr_tokens.push(tokens[idx].clone());
                 idx += 1;
@@ -894,7 +920,9 @@ impl Compiler {
             }
           }
 
-          while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) { idx += 1; }
+          while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) {
+            idx += 1;
+          }
           if idx < tokens.len() && !matches!(&tokens[idx], Token::Identifier(id, _) if id == "do") {
             result.push(tokens[i].clone());
             i += 1;
@@ -905,8 +933,10 @@ impl Compiler {
           let mut patterns = Vec::new();
 
           while idx < tokens.len() {
-            while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) { idx += 1; }
-            if matches!(&tokens[idx], Token::Identifier(id, _) if id == "in") {
+            while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) {
+              idx += 1;
+            }
+            if matches!(&tokens[idx], Token::Identifier(id, _) if id == "if") {
               idx += 1;
 
               let pattern = self.parse_pattern(&tokens, &mut idx);
@@ -917,17 +947,17 @@ impl Compiler {
               patterns.push(Token::LeftBrace(0));
               patterns.extend(body);
               patterns.push(Token::RightBrace(0));
-
             } else if matches!(&tokens[idx], Token::Identifier(id, _) if id == "end") {
               idx += 1;
               break;
             } else {
-              panic!("Expected 'in' or 'end' inside match block");
+              panic!("Expected 'if' or 'end' inside match block");
             }
           }
 
           if patterns.len() > 0 {
-            let tokens = self.compile_match(vec![expr_tokens, patterns], path.clone(), conf.clone());
+            let tokens =
+              self.compile_match(vec![expr_tokens, patterns], path.clone(), conf.clone());
             result.extend(tokens);
           } else {
             result.push(tokens[i].clone());
@@ -1284,6 +1314,13 @@ impl Compiler {
       self.compile_enum(args, path, conf)
     } else if macro_name == "decorator" {
       self.compile_decorator(args, path, conf)
+    } else if macro_name == "into_string" {
+      vec![Token::BraceString(
+        self
+          .into_string(args.iter().flat_map(|f| f.clone()).collect())
+          .replace("]", "\\]"),
+        0,
+      )]
     } else if macro_name == "eval" {
       self.compile_eval(args, path)
     } else if macro_name == "const" {
@@ -1344,36 +1381,39 @@ impl Compiler {
     i
   }
 
-  fn compile_eval(
-    &mut self,
-    args: Vec<Vec<Token>>,
-    path: Option<String>
-  ) -> Vec<Token> {
+  fn compile_eval(&mut self, args: Vec<Vec<Token>>, path: Option<String>) -> Vec<Token> {
     let body = self.generate_code(args[0].clone());
 
     let _ = self.lua.globals().set("path", path);
 
-    if let Ok(x) = self.lua.load(body)
+    if let Ok(x) = self
+      .lua
+      .load(body)
       .set_name("compile_eval")
-      .eval::<String>() {
-        vec![Token::String(x, 0)]
-      } else {
-        Vec::new()
-      }
+      .eval::<String>()
+    {
+      vec![Token::String(x, 0)]
+    } else {
+      Vec::new()
+    }
   }
 
-  fn compile_get(
-    &mut self,
-    args: Vec<Vec<Token>>
-  ) -> Vec<Token> {
+  fn into_string(&self, args: Vec<Token>) -> String {
+    let mut result = String::new();
+
+    for token in args.iter() {
+      result += &get_token_string_all(token);
+    }
+
+    result
+  }
+
+  fn compile_get(&mut self, args: Vec<Vec<Token>>) -> Vec<Token> {
     let name = self.generate_code(args[0].clone());
     return vec![Token::String(self.lua.globals().get(name).unwrap(), 0)];
   }
 
-  fn compile_const(
-    &mut self,
-    args: Vec<Vec<Token>>
-  ) -> Vec<Token> {
+  fn compile_const(&mut self, args: Vec<Vec<Token>>) -> Vec<Token> {
     let name = self.generate_code(args[0].clone());
     let val = self.generate_code(args[1].clone());
 
@@ -1790,9 +1830,7 @@ impl Compiler {
       while i < tokens.len() {
         let (expr_tokens, next_i) = self.capture_extra_expression(tokens, i);
         if expr_tokens.is_empty() {
-          panic!(
-            "Expected function name and block."
-          );
+          panic!("Expected function name and block.");
         }
         i = next_i;
 
@@ -3288,7 +3326,8 @@ end
             k += 2;
 
             let mut decor_args = Vec::new();
-            if k < tokens_inside_parens.len() && matches!(tokens_inside_parens[k], Token::LeftParen(_))
+            if k < tokens_inside_parens.len()
+              && matches!(tokens_inside_parens[k], Token::LeftParen(_))
             {
               let mut depth = 1;
               k += 1;
@@ -3375,7 +3414,10 @@ end
     let mut pat = Vec::new();
     while *idx < tokens.len() {
       match &tokens[*idx] {
-        Token::Identifier(id, _) if id == "then" => { *idx += 1; break; }
+        Token::Identifier(id, _) if id == "then" => {
+          *idx += 1;
+          break;
+        }
         _ => {
           pat.push(tokens[*idx].clone());
           *idx += 1;
@@ -3391,7 +3433,7 @@ end
 
     while *idx < tokens.len() {
       match &tokens[*idx] {
-        Token::Identifier(id, _) if id == "in" && depth == 0 => break,
+        Token::Identifier(id, _) if id == "if" && depth == 0 => break,
         Token::Identifier(id, _) if id == "end" && depth == 0 => break,
         Token::LeftBrace(_) | Token::LeftParen(_) => depth += 1,
         Token::RightBrace(_) | Token::RightParen(_) => depth -= 1,
@@ -3403,7 +3445,6 @@ end
 
     body_tokens.to_vec()
   }
-
 
   fn generate_code(&self, tokens: Vec<Token>) -> String {
     let mut result = String::new();
@@ -3491,9 +3532,9 @@ end
             while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) {
               idx += 1;
             }
-            
+
             idx += 1;
-            
+
             while idx < tokens.len() && matches!(tokens[idx], Token::Whitespace(_, _)) {
               idx += 1;
             }
@@ -3540,7 +3581,7 @@ end
 
             pass_until_block_end!(tokens, idx, 0);
             hooks_int.insert(idx, ")".to_string());
-            
+
           }, result.push_str(name)))));
         }
         Token::Identifier(name, _) => {
@@ -3594,7 +3635,7 @@ end
             if !lhs.is_empty() {
               hooks_int.insert(i + 1, format!(" {} {}", lhs, sym));
             }
-          }, if sym == "*" { 
+          }, if sym == "*" {
             check_token!(&tokens, i, 1, false, Token::Identifier(current_token, ind) => {
               check_token!(&tokens, ind, 1, true, Token::Symbol(char, ind) if char == '='.to_string() => {
                 let next_token = &peek_through(&tokens, ind, 1, true).unwrap_or(Token::EOF(0));
@@ -3709,7 +3750,9 @@ end
             let s = get_token_string(&tokens[j]).unwrap_or(":".to_string());
             if j < tokens.len() && matches!(&tokens[j + 1], Token::Identifier(i, _) if i != "end") {
               let parent_name = get_token_string(&tokens[j + 1]).unwrap();
-              if s == ":" { parent = name.clone(); }
+              if s == ":" {
+                parent = name.clone();
+              }
               name = format!("{}{}{}", name, s, parent_name);
               j += 2;
             }
@@ -3769,7 +3812,18 @@ end
                   }
                 }
 
-                let fn_code = format!("{}function{}({}{}){}", prefix, name, if parent.is_empty() || !prefix.contains("=") { "".to_string() } else { format!("self{}", if args_str.is_empty() { "" } else { "," }) }, args_str, deco_str);
+                let fn_code = format!(
+                  "{}function{}({}{}){}",
+                  prefix,
+                  name,
+                  if parent.is_empty() || !prefix.contains("=") {
+                    "".to_string()
+                  } else {
+                    format!("self{}", if args_str.is_empty() { "" } else { "," })
+                  },
+                  args_str,
+                  deco_str
+                );
                 result.push_str(&fn_code);
 
                 i = j + 1;
@@ -3891,7 +3945,15 @@ end
                   false
                 };
 
-                prefix.push_str(&format!("{}({}", decorator_str, if func_name.contains(":") { format!("{},", func_name.split(":").collect::<Vec<&str>>()[0]) } else { "".to_string() }));
+                prefix.push_str(&format!(
+                  "{}({}",
+                  decorator_str,
+                  if func_name.contains(":") {
+                    format!("{},", func_name.split(":").collect::<Vec<&str>>()[0])
+                  } else {
+                    "".to_string()
+                  }
+                ));
                 if is_async {
                   suffix.push(')');
                 } else {
@@ -3900,16 +3962,34 @@ end
               }
 
               let local_str = if is_local { "local " } else { "" };
-              result.push_str(&format!("{}{}{}{}", local_str, func_name.trim().replace(":", "."), if func_name.len() > 0 { " = " } else { "" }, prefix));
+              result.push_str(&format!(
+                "{}{}{}{}",
+                local_str,
+                func_name.trim().replace(":", "."),
+                if func_name.len() > 0 { " = " } else { "" },
+                prefix
+              ));
 
               result.push_str("function");
 
               let args_tokens = &tokens[args_start_i..args_end_i];
               let is_method = func_name.contains(":");
-              let self_context = if is_method { "self" } else { "empty_class(self)" };
+              let self_context = if is_method {
+                "self"
+              } else {
+                "empty_class(self)"
+              };
               let (args_str, deco_str) = self.parse_decorated_args(args_tokens, self_context);
 
-              result.push_str(&format!("({}{})", if is_method { if args_str.is_empty() { "self" } else { "self," } } else { "" }, args_str));
+              result.push_str(&format!(
+                "({}{})",
+                if is_method {
+                  if args_str.is_empty() { "self" } else { "self," }
+                } else {
+                  ""
+                },
+                args_str
+              ));
               result.push_str(&deco_str);
 
               let body_tokens = &tokens[args_end_i..body_end_i];

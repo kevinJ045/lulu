@@ -860,8 +860,20 @@ class! @into_collectible("collect", "items") Vec, {
     return table.concat(self.items, sep or ", ")
   }
 
+  keys() {
+    return Vec(table.keys(self.items))
+  }
+
+  values() {
+    return Vec(table.values(self.items))
+  }
+
   __tostring(){
-    return "[" .. table.concat(self.items, ", ") .. "]"
+    try_catch! {
+      return "[" .. table.concat(self.items, ", ") .. "]"
+    }, {
+      return "[Unstringable Table (" .. #self.items .. ")]"
+    }
   }
 
   find(fn) {

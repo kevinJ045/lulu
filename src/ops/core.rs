@@ -1,19 +1,19 @@
 use crate::lulibs::bytes::LuluByteArray;
 use crate::lulibs::collections::{LuluHashMap, LuluHashSet};
+use crate::lulibs::rec::LuluRec;
 use crate::lulibs::rust::{LuluArc, lua_to_lulu};
 use crate::ops::process::register_exec;
 use crate::ops::std::create_std;
 use crate::package_manager::PackageManager;
 use crate::util::copy_recursively;
 use crate::{core::Lulu, core::LuluModSource, ops::std::get_std_module};
+use base64::prelude::*;
 use mlua::Lua;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 use tokio::time;
-use base64::prelude::*;
-
 
 pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   let mods = lulu.mods.clone();
@@ -357,28 +357,29 @@ pub fn register_ops(lua: &Lua, lulu: &Lulu) -> mlua::Result<()> {
   lua.globals().set(
     "base64",
     lua.create_function(|_, s: String| {
-      let bytes = BASE64_STANDARD.decode(&s).map_err(|e| mlua::Error::external(format!("Invalid base64: {}", e)))?;
+      let bytes = BASE64_STANDARD
+        .decode(&s)
+        .map_err(|e| mlua::Error::external(format!("Invalid base64: {}", e)))?;
       Ok(LuluByteArray { bytes })
     })?,
   )?;
 
   lua.globals().set(
     "Arc",
-    lua.create_function(|_, v: mlua::Value| {
-      Ok(LuluArc::new_plain(lua_to_lulu(&v)?))
-    })?,
+    lua.create_function(|_, v: mlua::Value| Ok(LuluArc::new_plain(lua_to_lulu(&v)?)))?,
   )?;
   lua.globals().set(
     "ArcMutex",
-    lua.create_function(|_, v: mlua::Value| {
-      Ok(LuluArc::new_mutex(lua_to_lulu(&v)?))
-    })?,
+    lua.create_function(|_, v: mlua::Value| Ok(LuluArc::new_mutex(lua_to_lulu(&v)?)))?,
   )?;
   lua.globals().set(
     "ArcRwlock",
-    lua.create_function(|_, v: mlua::Value| {
-      Ok(LuluArc::new_rwlock(lua_to_lulu(&v)?))
-    })?,
+    lua.create_function(|_, v: mlua::Value| Ok(LuluArc::new_rwlock(lua_to_lulu(&v)?)))?,
+  )?;
+
+  lua.globals().set(
+    "rec",
+    lua.create_function(|_, v: mlua::Table| LuluRec::try_from(v))?,
   )?;
 
   lua.globals().set(
