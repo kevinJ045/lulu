@@ -1,5 +1,6 @@
+use crate::ops::sys;
+use mlua::Lua;
 use mlua::prelude::LuaError;
-use mlua::{Lua};
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use regex::Regex;
@@ -8,7 +9,6 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::{Arc, RwLock};
-use crate::ops::sys;
 
 pub fn create_std(lua: &Lua) -> mlua::Result<()> {
   let std = lua.globals();
@@ -269,4 +269,12 @@ pub fn init_std_modules() {
   crate::lulibs::console::into_module();
 
   crate::lulibs::pathing::into_module();
+
+  crate::lulibs::compression::into_module();
+
+  crate::lulibs::crypto::into_module();
+
+  crate::lulibs::interproc::into_module();
+
+  // crate::lulibs::messaging::into_module();
 }

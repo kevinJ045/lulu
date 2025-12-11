@@ -77,6 +77,17 @@ impl MacroRegistry {
       },
     );
     macros.insert(
+      "try".to_string(),
+      MacroDefinition {
+        name: "try".to_string(),
+        params: vec![
+          "try_block".to_string(),
+          "_catch_block".to_string()
+        ],
+        body: tokenize("(function()\nlocal ok, err = pcall(function()\n$try_block\nend)\nif not ok then\n$_catch_block\nreturn Err(err)\nend\nreturn err\nend)()"),
+      },
+    );
+    macros.insert(
       "lazy".to_string(),
       MacroDefinition {
         name: "lazy".to_string(),
@@ -3669,8 +3680,25 @@ end
         }
         Token::Symbol(sym, _) if sym == ":" => {
           check_token!(&tokens, i, 1, false, Token::Symbol(symb, _) if symb == ":" => {
-            result.push_str(".__static.");
+            result.push_str(".__static");
+            if matches!(&tokens[i + 2], Token::Symbol(symb, _) if symb == ":") {
+              result.push(':');
+            } else {
+              result.push('.');
+            }
             i += 1;
+          }, result.push_str(sym));
+        }
+        Token::Symbol(sym, _) if sym == "<" => {
+          check_token!(&tokens, i, 1, false, Token::Symbol(symb, _) if symb == "|" => {
+            result.push_str("::");
+            let mut j = i + 2;
+            while j < tokens.len() && matches!(tokens[j], Token::Whitespace(_, _)) {
+              j += 1;
+            }
+            result.push_str(&get_token_string(&tokens[j]).unwrap());
+            result.push_str("::");
+            i = j;
           }, result.push_str(sym));
         }
         Token::LeftBrace(_) => {

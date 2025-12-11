@@ -43,6 +43,10 @@ sysinfo = "0.36.1"
 crossterm = "0.25"
 base64 = "0.21"
 
+zstd = "0.13"
+aes-gcm = "0.10"
+interprocess = "2.2.3"
+
 [profile.release]
 opt-level = "z"
 lto = true
