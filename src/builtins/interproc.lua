@@ -64,10 +64,20 @@ interproc.JSON = {
   on_recv = function(data) return serde.json.decode(data:to_string()) end,
 }
 
+interproc.String = {
+  on_send = function(data) return ByteArray(data) end,
+  on_recv = function(data) return data:to_string() end,
+}
+
 interproc.Serialize = {
-  on_send = function(data) return data:serialize() end,
+  on_send = function(data) if data.serialize then return data:serialize() else return data end end,
 }
 
 interproc.Deserialize = function(type) return {
-  on_recv = function(data) return type:deserialize(data) end,
+  on_recv = function(data) try_catch!{
+    return type:deserialize(data:to_string())
+  }, {
+    return data
+  }
+  return err end,
 } end

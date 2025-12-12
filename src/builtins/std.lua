@@ -983,6 +983,7 @@ class! @into_collectible("collect", "items") Vec, {
   }
 }
 
+
 function extract_serializable(o, parent)
   parent = parent or {}
   if type(o) ~= "table" then
@@ -991,6 +992,10 @@ function extract_serializable(o, parent)
     else
       return nil
     end
+  end
+
+  if o.__enum_var then
+    return o:serialize()
   end
 
   if instanceof(o, Vec) then
@@ -1017,7 +1022,14 @@ function extract_serializable(o, parent)
   return result
 end
 
+
+
 function Deserializable(_stype)
+  if type(_stype) == "table" and _stype.__is_enum then
+    return function(_self, value, name)
+      return value
+    end
+  end
   return function(_self, value, name)
     if not value then return value end
     local deserialize = not instanceof(value, _stype)
@@ -1051,6 +1063,62 @@ function Serializable(_stype)
     end
   })(function(self) end), {
     __call = function(tbl, _class)
+
+
+      if type(_class) == "table" and _class.__is_enum then
+
+        function add_enum_props(k, v, t)
+          v.serialize = function()
+            local s = "\"" .. k
+            if t then
+              s = s .. "(" .. Vec(t):join(',') .. ")"
+              return s .. [["]]
+            else
+              return s .. [["]]
+            end
+          end
+          return setmetatable(v, {
+            __tostring = function()
+              return v.serialize()
+            end
+          })
+        end
+
+        for k, v in pairs(_class) do
+          if type(k) == "string" and k:sub(0, 2) ~= "__" and k ~= "is" and k ~= "on_create" then
+            if type(v) == "function" then
+              _class[k] = function(...)
+                local r = v(...)
+                return add_enum_props(k, r, {...})
+              end
+            else
+              _class[k] = add_enum_props(k, v)
+            end
+          end
+        end
+
+
+        (arg) _class:deserialize =>
+          if type(arg) ~= "string" then
+            return arg
+          end
+
+          arg = serde[_stype].decode(arg)
+
+          if re.exec("\\w+\\(", arg) then
+            local matched = re.match("(\\w+)\\((.+)\\)", arg)
+            return _class[ matched[2] ](unpack(String(matched[3]):split(",").items))
+          else
+            return _class[arg]
+          end
+
+          return arg
+        end
+
+        return _class
+      end
+
+
       () _class:serialize =>
         return serde[_stype].encode(extract_serializable(self))
       end
@@ -1068,6 +1136,7 @@ function Serializable(_stype)
     end
   })
 end
+
 
 Clone = trait({
   clone = function(self)

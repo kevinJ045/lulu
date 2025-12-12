@@ -41,6 +41,9 @@
   * [Sys lulib](lulib/sys.md)
   * [Dylib/ffi](lulib/ffi.md)
   * [Pathing](lulib/pathing.md)
+  * [Compression](lulib/compression.md)
+  * [Crypto](lulib/crypto.md)
+  * [Interprocess](lulib/interproc.md)
 
 * **Stubs**
   * [About Stubs](stubs/README.md)

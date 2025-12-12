@@ -100,6 +100,35 @@ try_catch! {
 }
 ```
 
+## `try_!`
+
+> Generating Macro
+
+Inline `pcall` with handled result.
+
+```lua
+local myVar = try! {
+  -- Code that might fail
+  return Ok("some-result")
+}, {
+  -- This block executes on failure
+  -- The error message is available in the `err` variable
+  return Err(err) -- this is what is returned by default
+}
+
+-- or just
+
+local myVar = try!
+  return Ok(something_that_might_fail());
+  
+match(myVar) do
+  if Err then
+    print('error happened')
+  if _ then
+    print('Done')
+end
+```
+
 ## `guard!`
 
 > Generating Macro
