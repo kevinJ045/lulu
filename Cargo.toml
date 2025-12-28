@@ -1,6 +1,6 @@
 [package]
 name = "lulu"
-version = "0.0.719"
+version = "0.0.720"
 authors = ["makano"]
 edition = "2024"
 license = "MIT"
@@ -31,6 +31,7 @@ flate2 = "1.1.4"
 tar = "0.4.42"
 tokio-rustls = "0.26.4"
 tokio-tungstenite = "0.28.0"
+futures = "0.3"
 futures-util = "0.3.31"
 http-body-util = "0.1.2"
 hyper = "1.7.0"
@@ -46,6 +47,13 @@ base64 = "0.21"
 zstd = "0.13"
 aes-gcm = "0.10"
 interprocess = "2.2.3"
+whispeer = "0.0.22"
+
+quinn = { version = "0.11", features = ["ring"] }
+rcgen = "0.13"
+rustls = { version = "0.23", features = ["ring", "std"] }
+rustls-pki-types = "1.0"
+bincode = { version = "2.0.0-rc.3", features = ["serde"] }
 
 [profile.release]
 opt-level = "z"

@@ -6,7 +6,7 @@ pub mod compression;
 pub mod console;
 pub mod crypto;
 pub mod kv;
-// pub mod messaging;
+pub mod messaging;
 pub mod interproc;
 pub mod net;
 pub mod pathing;

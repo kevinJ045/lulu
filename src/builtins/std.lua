@@ -58,6 +58,37 @@ function dump_item_into_string(o, indent)
   end
 end
 
+local pinned = {}
+function pin(value)
+  table.insert(pinned, value)
+  return value
+end
+
+function pin_all(...)
+  for i, v in ipairs({...}) do
+    pin(v)
+  end
+end
+
+function unpin(value)
+  for i, v in ipairs(pinned) do
+    if v == value then
+      table.remove(pinned, i)
+      break
+    end
+  end
+end
+
+function unpin_all(...)
+  for i, v in ipairs({...}) do
+    unpin(v)
+  end
+end
+
+function unpin_at(index)
+  table.remove(pinned, index)
+end
+
 function fprint(...)
   local args = {}
   for key, item in ipairs({...}) do
@@ -874,6 +905,7 @@ class! @into_collectible("collect", "items") Vec, {
     }, {
       return "[Unstringable Table (" .. #self.items .. ")]"
     }
+    return err
   }
 
   find(fn) {

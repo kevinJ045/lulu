@@ -276,5 +276,5 @@ pub fn init_std_modules() {
 
   crate::lulibs::interproc::into_module();
 
-  // crate::lulibs::messaging::into_module();
+  crate::lulibs::messaging::into_module();
 }

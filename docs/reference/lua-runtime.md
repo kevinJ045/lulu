@@ -25,6 +25,13 @@ Lulu provides a set of global functions and modules available to all your `.lua`
 - **`mv(source, destination)`**: Moves a file.
 - **`rm(path)`**: Removes a file or directory.
 
+## Pinning
+
+- **`pin(value)`**: Pins a value in memory.
+- **`unpin(value)`**: Unpins a pinned value.
+- **`pin_all(...)`**: Pins multiple items.
+- **`unpin_all(...)`**: Inpins multiple items.
+
 ## Regular Expressions (`re`)
 
 A global module for regular expressions.

@@ -77,5 +77,6 @@ pub fn into_module() {
       Ok(())
     })
     .add_file("interproc.lua", include_str!("../builtins/interproc.lua"))
+    .depend_on("serde".to_string())
     .into();
 }

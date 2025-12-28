@@ -243,6 +243,14 @@ impl MacroRegistry {
         body: tokenize("include_bytes! { $expr }:to_string()"),
       },
     );
+    macros.insert(
+      "all".to_string(),
+      MacroDefinition {
+        name: "all".to_string(),
+        params: vec!["expr".to_string()],
+        body: Vec::new(),
+      },
+    );
 
     if let Ok(modules) = STD_MODULES.read() {
       for (_, module) in modules.iter() {
@@ -1338,6 +1346,8 @@ impl Compiler {
       self.compile_const(args)
     } else if macro_name == "get" {
       self.compile_get(args)
+    } else if macro_name == "all" {
+      self.compile_multi_op(args)
     } else if macro_name == "import" {
       let mut cargs = args.clone();
       let cpath = get_token_string(&args[1][0]).unwrap();
@@ -1512,6 +1522,26 @@ impl Compiler {
     }
 
     self.process_macros(tokenize(lua.as_str()), path, conf)
+  }
+
+  fn compile_multi_op(&mut self, args: Vec<Vec<Token>>) -> Vec<Token> {
+    if args.len() < 1 {
+      panic!("all! expects atleast two arguments");
+    }
+
+    let mut items = args
+      .clone()
+      .iter()
+      .map(|t| self.generate_code(t.clone()))
+      .collect::<Vec<String>>();
+    let task = items.pop().unwrap();
+    let mut lua = String::new();
+
+    for item in items.iter() {
+      lua += &format!("{}{}", item, task.clone(),);
+    }
+
+    tokenize(lua.as_str())
   }
 
   fn compile_collect(

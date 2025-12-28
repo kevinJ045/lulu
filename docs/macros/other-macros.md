@@ -241,6 +241,22 @@ repeat_n! 1, 5, {
 }
 ```
 
+## `all!`
+
+> Generating Macro
+
+Repeats one operation on multiple entities
+
+```lua
+local vec1, vec2, vec3, item4 = Vec(), Vec(), Vec(), { vec = Vec() }
+
+all! vec1, vec2, vec3, item4.vec, :push(1);
+-- or
+all! vec1, vec2, vec3, item4.vec, :push(1)
+; -- this line break puts each of the applied 
+  -- elements to happen on a new line 
+```
+
 ## `const!`
 
 > Generating Macro

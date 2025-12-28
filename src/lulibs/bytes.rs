@@ -30,9 +30,7 @@ impl mlua::UserData for LuluByteArray {
       }
     });
 
-    methods.add_method("to_str", |_lua, this, ()| {
-      _lua.create_string(&this.bytes)
-    });
+    methods.add_method("to_str", |_lua, this, ()| _lua.create_string(&this.bytes));
 
     methods.add_method_mut("extend", |_, this, other: mlua::AnyUserData| {
       let other_bytes = other.borrow::<LuluByteArray>()?;
@@ -46,9 +44,8 @@ impl mlua::UserData for LuluByteArray {
     });
 
     methods.add_method("to_base64", |_, this, ()| {
-        Ok(BASE64_STANDARD.encode(&this.bytes))
+      Ok(BASE64_STANDARD.encode(&this.bytes))
     });
-
 
     methods.add_method_mut("push", |_, this, byte: u8| {
       this.bytes.push(byte);
@@ -86,5 +83,21 @@ impl mlua::UserData for LuluByteArray {
         .collect();
       Ok(LuluByteArray { bytes: mapped })
     });
+  }
+}
+
+impl mlua::FromLua for LuluByteArray {
+  fn from_lua(value: mlua::Value, _lua: &mlua::Lua) -> mlua::Result<Self> {
+    match value {
+      mlua::Value::UserData(ud) => Ok(ud.borrow::<Self>()?.clone()),
+      mlua::Value::String(s) => Ok(LuluByteArray {
+        bytes: s.as_bytes().to_vec(),
+      }),
+      _ => Err(mlua::Error::FromLuaConversionError {
+        from: value.type_name(),
+        to: "ByteArray".to_string(),
+        message: None,
+      }),
+    }
   }
 }
