@@ -44,6 +44,7 @@
   * [Compression](lulib/compression.md)
   * [Crypto](lulib/crypto.md)
   * [Interprocess](lulib/interproc.md)
+  * [Messaging](lulib/messaging.md)
 
 * **Stubs**
   * [About Stubs](stubs/README.md)
